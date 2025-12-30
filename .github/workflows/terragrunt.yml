@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:   # manual trigger support
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -17,11 +17,14 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (full history)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 🔥 critical fix
 
       - name: Detect changed apps
         id: set-matrix
+        shell: bash
         run: |
           # Manual run → deploy everything
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -29,7 +32,13 @@ jobs:
             exit 0
           fi
 
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          # Handle first commit / missing before SHA
+          if [ -z "${{ github.event.before }}" ]; then
+            echo 'matrix={"app":["app1","app2"]}' >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
 
           APPS=()
 
@@ -41,7 +50,7 @@ jobs:
             APPS+=("\"app2\"")
           fi
 
-          # If workflow changed → deploy all apps
+          # Workflow change → deploy all
           if echo "$CHANGED_FILES" | grep -q "^.github/workflows/"; then
             APPS=("\"app1\"", "\"app2\"")
           fi
@@ -71,7 +80,7 @@ jobs:
             exit 1
           fi
 
-      - name: Login to Azure (OIDC / SP)
+      - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
