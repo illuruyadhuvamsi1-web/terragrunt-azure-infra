@@ -76,12 +76,14 @@ jobs:
       # Step 7: Terragrunt Plan
       - name: Terragrunt Plan
         working-directory: ${{ matrix.app }}
-        run: terragrunt run-all plan
+        # run: terragrunt run-all plan
+        run: terragrunt run-all plan --terragrunt-include-dir app1/dev/network
 
       # Step 8: Terragrunt Apply
       - name: Terragrunt Apply
         working-directory: ${{ matrix.app }}
-        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+        # run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+        run: terragrunt run-all apply --terragrunt-include-dir app1/dev/network --terragrunt-non-interactive -auto-approve
 
       # Step 9: Terragrunt Destroy
     #   - name: Terragrunt Destroy
