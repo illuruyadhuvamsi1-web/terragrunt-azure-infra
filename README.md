@@ -146,5 +146,10 @@ modules/
 - **Environment-specific values not picked up:** Check that you are running Terragrunt from the correct environment folder and that `find_in_parent_folders("env.hcl")` resolves to the right file.
 
 
+## C:\Users\Illuru Yadhu Vamsi\Documents\Infra\.github\workflows\terragrunt.yml
+--terragrunt-non-interactive → no interactive prompts from Terragrunt itself.
+-auto-approve → automatically approves Terraform changes.
+
+
 
 

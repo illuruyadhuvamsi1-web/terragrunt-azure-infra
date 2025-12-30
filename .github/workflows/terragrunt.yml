@@ -12,6 +12,12 @@ permissions:
 jobs:
   terragrunt-deploy:
     runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        app:
+          - app1
+          - app2
 
     steps:
       # Step 1: Checkout code
@@ -54,25 +60,30 @@ jobs:
 
       # Step 5: Terragrunt Fmt (formatting)
       - name: Terragrunt Format
-        working-directory: app1
+        working-directory: ${{ matrix.app }}
         run: terragrunt run-all fmt -check=false
 
-      # Step 6: Terragrunt Init
+      # Run Terragrunt per app
       - name: Terragrunt Init
-        working-directory: app1/dev
-        run: terragrunt run-all init --terragrunt-non-interactive
+        working-directory: ${{ matrix.app }}
+        run: terragrunt run-all init 
+
+      # Terragrunt Validate
+      - name: Terragrunt Validate
+        working-directory: ${{ matrix.app }}
+        run: terragrunt run-all validate --terragrunt-non-interactive
 
       # Step 7: Terragrunt Plan
       - name: Terragrunt Plan
-        working-directory: app1
-        run: terragrunt run-all plan --terragrunt-non-interactive
+        working-directory: ${{ matrix.app }}
+        run: terragrunt run-all plan
 
       # Step 8: Terragrunt Apply
       - name: Terragrunt Apply
-        working-directory: app1
+        working-directory: ${{ matrix.app }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
 
       # Step 9: Terragrunt Destroy
-      - name: Terragrunt Destroy
-        working-directory: app1
-        run: terragrunt run-all destroy --terragrunt-non-interactive -auto-approve
+    #   - name: Terragrunt Destroy
+    #     working-directory: app1
+    #     run: terragrunt run-all destroy --terragrunt-non-interactive -auto-approve
