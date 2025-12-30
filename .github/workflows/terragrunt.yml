@@ -71,3 +71,8 @@ jobs:
       - name: Terragrunt Apply
         working-directory: app1/dev
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+
+      # Step 9: Terragrunt Destroy
+      - name: Terragrunt Destroy
+        working-directory: app1/dev
+        run: terragrunt run-all destroy --terragrunt-non-interactive -auto-approve
