@@ -150,6 +150,21 @@ modules/
 --terragrunt-non-interactive → no interactive prompts from Terragrunt itself.
 -auto-approve → automatically approves Terraform changes.
 
+strategy:
+  matrix:
+    app:
+      - app1
+      - app2
+What happens here:
+GitHub creates 2 parallel executions of the same job:
+One for app1
+One for app2
+
+Internally:
+nginx
+Copy code
+Job 1 → matrix.app = app1
+Job 2 → matrix.app = app2
 
 
 
