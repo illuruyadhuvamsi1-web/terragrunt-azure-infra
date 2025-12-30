@@ -13,7 +13,7 @@ terraform {
 }
 
 inputs = {
-  name     = "rg-${local.env.locals.env_name}"
+  name     = "${local.env.locals.rg_prefix}-app1-${local.env.locals.env_name}"
   location = local.env.locals.location
   tags     = local.env.locals.tags
 }
