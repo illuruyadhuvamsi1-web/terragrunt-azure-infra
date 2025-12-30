@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:   # manual trigger support
 
 permissions:
   id-token: write
@@ -18,22 +19,35 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Detect changed apps
         id: set-matrix
         run: |
+          # Manual run → deploy everything
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'matrix={"app":["app1","app2"]}' >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+
           APPS=()
+
           if echo "$CHANGED_FILES" | grep -q "^app1/"; then
             APPS+=("\"app1\"")
           fi
+
           if echo "$CHANGED_FILES" | grep -q "^app2/"; then
             APPS+=("\"app2\"")
           fi
+
+          # If workflow changed → deploy all apps
+          if echo "$CHANGED_FILES" | grep -q "^.github/workflows/"; then
+            APPS=("\"app1\"", "\"app2\"")
+          fi
+
           if [ ${#APPS[@]} -eq 0 ]; then
-            echo "matrix={\"app\":[]}" >> $GITHUB_OUTPUT
+            echo 'matrix={"app":[]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"app\":[${APPS[*]}]}" >> $GITHUB_OUTPUT
           fi
@@ -50,12 +64,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to Azure
+      - name: Verify Azure credentials
+        run: |
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
+            echo "AZURE_CREDENTIALS secret is missing"
+            exit 1
+          fi
+
+      - name: Login to Azure (OIDC / SP)
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Set Azure environment variables
+      - name: Set ARM environment variables
         run: |
           echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
@@ -71,7 +92,7 @@ jobs:
         run: |
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
-          sudo mv terragrunt /usr/local/bin/
+          sudo mv terragrunt /usr/local/bin/terragrunt
 
       - name: Terragrunt Format
         working-directory: ${{ matrix.app }}
