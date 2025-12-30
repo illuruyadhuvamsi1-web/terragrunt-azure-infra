@@ -117,7 +117,7 @@ jobs:
 
       - name: Terragrunt Plan
         working-directory: ${{ matrix.app }}
-        run: terragrunt run-all plan --terragrunt-non-interactive -auto-approve
+        run: terragrunt run-all plan --terragrunt-non-interactive
 
       - name: Terragrunt Apply
         working-directory: ${{ matrix.app }}
