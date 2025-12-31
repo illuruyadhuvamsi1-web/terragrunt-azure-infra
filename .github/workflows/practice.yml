@@ -76,9 +76,38 @@ jobs:
           echo "Changed apps: $CHANGED_APPS"
           echo "::set-output name=changed_apps::$CHANGED_APPS"
 
+          # Step 7: Detect changed apps
+      - name: Detect changed apps
+        id: detect_changes
+        run: |
+          # Fetch all history to avoid SHA issues
+            git fetch --prune --unshallow || true
+            git fetch origin main || true
+
+          # Initialize variable
+            CHANGED_APPS=""
+          # Check changes for app1
+            if git diff --name-only origin/main | grep -q '^app1/'; then
+                CHANGED_APPS="app1"
+            fi
+
+          # Check changes for app2
+            if git diff --name-only origin/main | grep -q '^app2/'; then
+                if [ -z "$CHANGED_APPS" ]; then
+                    CHANGED_APPS="app2"
+                else
+                    CHANGED_APPS="$CHANGED_APPS app2"
+                fi
+            fi
+            echo "Changed apps: $CHANGED_APPS"
+
+            # Save output using recommended environment file
+            echo "CHANGED_APPS=$CHANGED_APPS" >> $GITHUB_ENV
+
+
       # Step 8: Terragrunt steps for App1
       - name: Terragrunt Apply App1
-        if: contains(steps.detect_changes.outputs.changed_apps, 'app1')
+        if: contains(env.CHANGED_APPS, 'app1')
         working-directory: app1/${{ matrix.env }}
         run: |
           terragrunt run-all fmt -check=false
@@ -89,7 +118,7 @@ jobs:
 
       # Step 9: Terragrunt steps for App2
       - name: Terragrunt Apply App2
-        if: contains(steps.detect_changes.outputs.changed_apps, 'app2')
+        if: contains(env.CHANGED_APPS, 'app2')
         working-directory: app2/${{ matrix.env }}
         run: |
           terragrunt run-all fmt -check=false
