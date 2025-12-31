@@ -14,84 +14,66 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }} # Output the matrix for the next job
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
 
     steps:
       - name: Checkout repository (full history)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full git history into the github runner
+          fetch-depth: 0
 
-      - name: Detect changed apps
+      - name: Detect changed environments
         id: set-matrix
         shell: bash
         run: |
-          # # Manual run → deploy everything
-          # if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          #   echo 'matrix={"app":["app1","app2"]}' >> $GITHUB_OUTPUT  # Create an output called matrix with value value
-          #   exit 0
-          # fi
+          # Manual run → deploy everything
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'matrix={"include":[
+              {"app":"app1","env":"dev"},
+              {"app":"app1","env":"prod"},
+              {"app":"app2","env":"dev"},
+              {"app":"app2","env":"prod"}
+            ]}' >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
-          # # Handle first commit / missing before SHA 
-          # if [ -z "${{ github.event.before }}" ]; then
-          #   echo 'matrix={"app":["app1","app2"]}' >> $GITHUB_OUTPUT
-          #   exit 0
-          # fi
-
-          # Show me only the file names that changed between previous commit and current commit
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
 
-          APPS=() # Initialize an empty array We will add apps only if they changed
+          MATRIX=$(echo "$CHANGED_FILES" | \
+            grep -E '^(app1|app2)/(dev|prod)/' | \
+            awk -F'/' '{print "{\"app\":\""$1"\",\"env\":\""$2"\"}"}' | \
+            sort -u | \
+            jq -s .)
 
-          # Check for changes in each app directory
-          if echo "$CHANGED_FILES" | grep -q "^app1/"; then
-            APPS+=("\"app1\"")
-          fi
-
-          if echo "$CHANGED_FILES" | grep -q "^app2/"; then
-            APPS+=("\"app2\"")
-          fi
-
-          # # Workflow change → deploy all
-          # if echo "$CHANGED_FILES" | grep -q "^.github/workflows/"; then
-          #   APPS=("\"app1\"", "\"app2\"")
-          # fi
-
-          if [ ${#APPS[@]} -eq 0 ]; then
-            echo 'matrix={"app":[]}' >> $GITHUB_OUTPUT  # No apps changed Deployment job will be skipped
+          if [ "$MATRIX" = "[]" ]; then
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
           else
-            echo "matrix={\"app\":[${APPS[*]}]}" >> $GITHUB_OUTPUT # Apps that changed will be saved in output matrix
+            echo "matrix={\"include\":$MATRIX}" >> $GITHUB_OUTPUT
           fi
-      - name: Show detected matrix
+
+      - name: Show detected env matrix
         run: |
-          echo "Detected matrix from detect-changes job:"
-          echo "Detected matrix: ${{ steps.set-matrix.outputs.matrix }}"
-          
+          echo "Detected deployment matrix:"
+          echo '${{ steps.set-matrix.outputs.matrix }}'
+
   terragrunt-deploy:
-    needs: detect-changes # “Do NOT start this job until detect-changes finishes.”
-    if: needs.detect-changes.outputs.matrix != '{"app":[]}' # Skip this job if no apps changed and were detected in previous job 
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
 
     strategy:
-      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }} # Use the output matrix from the previous job, fromJson converts string to JSON object
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Verify Azure credentials
-        run: |
-          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
-            echo "AZURE_CREDENTIALS secret is missing"
-            exit 1
-          fi
 
       - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Set ARM environment variables
+      - name: Set ARM variables
         run: |
           echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
@@ -101,7 +83,7 @@ jobs:
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.6 
+          terraform_version: 1.6.6
 
       - name: Install Terragrunt
         run: |
@@ -109,22 +91,10 @@ jobs:
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
 
-      - name: Terragrunt Format
-        working-directory: ${{ matrix.app }}
-        run: terragrunt run-all fmt -check=false
-
-      - name: Terragrunt Init
-        working-directory: ${{ matrix.app }}
-        run: terragrunt run-all init
-
-      - name: Terragrunt Validate
-        working-directory: ${{ matrix.app }}
-        run: terragrunt run-all validate
-
-      - name: Terragrunt Plan
-        working-directory: ${{ matrix.app }}
-        run: terragrunt run-all plan --terragrunt-non-interactive
-
-      - name: Terragrunt Apply
-        working-directory: ${{ matrix.app }}
-        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+      - name: Terragrunt Apply (env scoped)
+        working-directory: ${{ matrix.app }}/${{ matrix.env }}
+        run: |
+          terragrunt run-all init
+          terragrunt run-all validate
+          terragrunt run-all plan --terragrunt-non-interactive
+          terragrunt run-all apply --terragrunt-non-interactive -auto-approve
