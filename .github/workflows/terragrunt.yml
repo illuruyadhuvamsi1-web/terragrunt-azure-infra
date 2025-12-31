@@ -83,9 +83,7 @@ jobs:
 
   terragrunt-deploy:
     needs: detect-changes
-    if: ${{ fromJson(needs.detect-changes.outputs.matrix).include != [] }}
     runs-on: ubuntu-latest
-
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
