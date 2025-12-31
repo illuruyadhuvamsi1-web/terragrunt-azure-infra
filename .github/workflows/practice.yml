@@ -1,0 +1,99 @@
+name: Terragrunt Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app1/**'
+      - 'app2/**'
+  workflow_dispatch: {}  # manual trigger
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terragrunt-deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [dev, prod]  # environments per app
+
+    steps:
+      # Step 1: Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Verify Azure credentials
+      - name: Verify Azure Credentials
+        run: |
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
+            echo "Azure credentials are not set. Please set the AZURE_CREDENTIALS secret.";
+            exit 1;
+          else
+            echo "Azure credentials are set.";
+          fi
+
+      # Step 3: Login to Azure
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # Step 4: Set ARM environment variables
+      - name: Set ARM environment variables
+        run: |
+          echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+
+      # Step 5: Install Terraform
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      # Step 6: Install Terragrunt
+      - name: Install Terragrunt
+        run: |
+          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      # Step 7: Detect changed apps
+      - name: Detect changed apps
+        id: detect_changes
+        run: |
+          CHANGED_APPS=""
+          if git diff --name-only ${{ github.sha }} ${{ github.sha }}^ | grep -q '^app1/'; then
+            CHANGED_APPS="app1"
+          fi
+          if git diff --name-only ${{ github.sha }} ${{ github.sha }}^ | grep -q '^app2/'; then
+            CHANGED_APPS="$CHANGED_APPS app2"
+          fi
+          echo "Changed apps: $CHANGED_APPS"
+          echo "::set-output name=changed_apps::$CHANGED_APPS"
+
+      # Step 8: Terragrunt steps for App1
+      - name: Terragrunt Apply App1
+        if: contains(steps.detect_changes.outputs.changed_apps, 'app1')
+        working-directory: app1/${{ matrix.env }}
+        run: |
+          terragrunt run-all fmt -check=false
+          terragrunt run-all init --terragrunt-non-interactive
+          terragrunt run-all validate --terragrunt-non-interactive
+          terragrunt run-all plan --terragrunt-non-interactive
+          terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+
+      # Step 9: Terragrunt steps for App2
+      - name: Terragrunt Apply App2
+        if: contains(steps.detect_changes.outputs.changed_apps, 'app2')
+        working-directory: app2/${{ matrix.env }}
+        run: |
+          terragrunt run-all fmt -check=false
+          terragrunt run-all init --terragrunt-non-interactive
+          terragrunt run-all validate --terragrunt-non-interactive
+          terragrunt run-all plan --terragrunt-non-interactive
+          terragrunt run-all apply --terragrunt-non-interactive -auto-approve
