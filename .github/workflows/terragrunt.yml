@@ -29,9 +29,9 @@ jobs:
         id: set-matrix
         shell: bash
         run: |
-          echo "Event: ${{ github.event_name }}"
+          echo "Triggered by event: ${{ github.event_name }}"
 
-          # Manual run → deploy everything
+          # Manual trigger → deploy everything
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo 'matrix={"include":[
               {"app":"app1","env":"dev"},
@@ -42,7 +42,7 @@ jobs:
             exit 0
           fi
 
-          # First commit / force push safety
+          # First commit / force-push safety
           if [ -z "${{ github.event.before }}" ]; then
             echo 'matrix={"include":[
               {"app":"app1","env":"dev"},
@@ -54,6 +54,7 @@ jobs:
           fi
 
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
@@ -63,7 +64,7 @@ jobs:
             sort -u | \
             jq -s '.')
 
-          if [ "$MATRIX" = "[]" ] || [ -z "$MATRIX" ]; then
+          if [ -z "$MATRIX" ] || [ "$MATRIX" = "[]" ]; then
             echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"include\":$MATRIX}" >> $GITHUB_OUTPUT
@@ -74,10 +75,11 @@ jobs:
 
   terragrunt-deploy:
     needs: detect-changes
-    if: contains(needs.detect-changes.outputs.matrix, '"app"')
+    if: needs.detect-changes.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
 
     steps:
