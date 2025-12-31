@@ -74,7 +74,7 @@ jobs:
 
   terragrunt-deploy:
     needs: detect-changes
-    if: needs.detect-changes.outputs.matrix != '{"include":[]}'
+    if: contains(needs.detect-changes.outputs.matrix, '"app"')
     runs-on: ubuntu-latest
 
     strategy:
