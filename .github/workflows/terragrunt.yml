@@ -33,23 +33,31 @@ jobs:
 
           # Manual trigger → deploy all apps/environments
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo 'matrix={"include":[
-              {"app":"app1","env":"dev"},
-              {"app":"app1","env":"prod"},
-              {"app":"app2","env":"dev"},
-              {"app":"app2","env":"prod"}
-            ]}' >> $GITHUB_OUTPUT
+            echo "matrix<<EOF" >> $GITHUB_OUTPUT
+            echo '{
+              "include":[
+                {"app":"app1","env":"dev"},
+                {"app":"app1","env":"prod"},
+                {"app":"app2","env":"dev"},
+                {"app":"app2","env":"prod"}
+              ]
+            }' >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # First commit / missing before SHA → deploy all
           if [ -z "${{ github.event.before }}" ]; then
-            echo 'matrix={"include":[
-              {"app":"app1","env":"dev"},
-              {"app":"app1","env":"prod"},
-              {"app":"app2","env":"dev"},
-              {"app":"app2","env":"prod"}
-            ]}' >> $GITHUB_OUTPUT
+            echo "matrix<<EOF" >> $GITHUB_OUTPUT
+            echo '{
+              "include":[
+                {"app":"app1","env":"dev"},
+                {"app":"app1","env":"prod"},
+                {"app":"app2","env":"dev"},
+                {"app":"app2","env":"prod"}
+              ]
+            }' >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -67,14 +75,17 @@ jobs:
             fi
           done
 
-          # Remove duplicates and format JSON
-          MATRIX_JSON=$(echo "${MATRIX[@]}" | tr ' ' '\n' | sort -u | jq -s '.')
+          # Convert to compact JSON
+          MATRIX_JSON=$(echo "${MATRIX[@]}" | tr ' ' '\n' | sort -u | jq -c -s '.')
 
           if [ "$MATRIX_JSON" = "[]" ]; then
-            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo "matrix<<EOF" >> $GITHUB_OUTPUT
+            echo '{"include":[]}' >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           else
-            echo "matrix={\"include\":$MATRIX_JSON}" >> $GITHUB_OUTPUT
-          fi
+            echo "matrix<<EOF" >> $GITHUB_OUTPUT
+            echo "{\"include\":$MATRIX_JSON}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Show detected matrix
         run: |
