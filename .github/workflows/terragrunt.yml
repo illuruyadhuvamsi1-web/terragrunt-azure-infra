@@ -25,13 +25,13 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Detect changed environments
+      - name: Detect changed app/env
         id: set-matrix
         shell: bash
         run: |
           echo "Event: ${{ github.event_name }}"
 
-          # Manual trigger → deploy all environments
+          # Manual trigger → deploy all apps/environments
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo 'matrix={"include":[
               {"app":"app1","env":"dev"},
@@ -42,7 +42,7 @@ jobs:
             exit 0
           fi
 
-          # First commit / force push safety
+          # First commit / missing before SHA → deploy all
           if [ -z "${{ github.event.before }}" ]; then
             echo 'matrix={"include":[
               {"app":"app1","env":"dev"},
@@ -55,29 +55,35 @@ jobs:
 
           # Detect changed files
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
-
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # Build valid matrix
-          MATRIX=$(echo "$CHANGED_FILES" | \
-            grep -E '^(app1|app2)/(dev|prod)/' || true | \
-            awk -F'/' '{print "{\"app\":\""$1"\",\"env\":\""$2"\"}"}' | \
-            sort -u | \
-            jq -s '.')
+          MATRIX=()
+          for file in $CHANGED_FILES; do
+            if [[ $file =~ ^(app1|app2)/(dev|prod)/ ]]; then
+              app=${BASH_REMATCH[1]}
+              env=${BASH_REMATCH[2]}
+              MATRIX+=("{\"app\":\"$app\",\"env\":\"$env\"}")
+            fi
+          done
 
-          if [ -z "$MATRIX" ] || [ "$MATRIX" = "[]" ]; then
+          # Remove duplicates and format JSON
+          MATRIX_JSON=$(echo "${MATRIX[@]}" | tr ' ' '\n' | sort -u | jq -s '.')
+
+          if [ "$MATRIX_JSON" = "[]" ]; then
             echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
           else
-            echo "matrix={\"include\":$MATRIX}" >> $GITHUB_OUTPUT
+            echo "matrix={\"include\":$MATRIX_JSON}" >> $GITHUB_OUTPUT
           fi
 
       - name: Show detected matrix
-        run: echo '${{ steps.set-matrix.outputs.matrix }}'
+        run: |
+          echo "Detected matrix from detect-changes job:"
+          echo '${{ steps.set-matrix.outputs.matrix }}'
 
   terragrunt-deploy:
     needs: detect-changes
-    if: contains(needs.detect-changes.outputs.matrix, '"app"')
+    if: ${{ fromJson(needs.detect-changes.outputs.matrix).include != [] }}
     runs-on: ubuntu-latest
 
     strategy:
@@ -88,12 +94,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify Azure credentials
+        run: |
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
+            echo "AZURE_CREDENTIALS secret is missing"
+            exit 1
+          fi
+
       - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Export ARM variables
+      - name: Set ARM environment variables
         run: |
           echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
@@ -111,10 +124,22 @@ jobs:
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
 
+      - name: Terragrunt Format
+        working-directory: ${{ matrix.app }}/${{ matrix.env }}
+        run: terragrunt run-all fmt -check=false
+
+      - name: Terragrunt Init
+        working-directory: ${{ matrix.app }}/${{ matrix.env }}
+        run: terragrunt run-all init
+
+      - name: Terragrunt Validate
+        working-directory: ${{ matrix.app }}/${{ matrix.env }}
+        run: terragrunt run-all validate
+
+      - name: Terragrunt Plan
+        working-directory: ${{ matrix.app }}/${{ matrix.env }}
+        run: terragrunt run-all plan --terragrunt-non-interactive
+
       - name: Terragrunt Apply
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: |
-          terragrunt run-all init
-          terragrunt run-all validate
-          terragrunt run-all plan --terragrunt-non-interactive
-          terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
