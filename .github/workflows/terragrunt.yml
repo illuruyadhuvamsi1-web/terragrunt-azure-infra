@@ -22,13 +22,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Detect changed environments
         id: set-matrix
         shell: bash
         run: |
-          echo "GitHub event: ${{ github.event_name }}"
+          echo "Event: ${{ github.event_name }}"
 
-          # Manual trigger → deploy everything
+          # Manual run → deploy everything
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo 'matrix={"include":[
               {"app":"app1","env":"dev"},
@@ -39,7 +42,7 @@ jobs:
             exit 0
           fi
 
-          # First commit / rebase / force push → deploy everything
+          # First commit / force push safety
           if [ -z "${{ github.event.before }}" ]; then
             echo 'matrix={"include":[
               {"app":"app1","env":"dev"},
@@ -51,26 +54,23 @@ jobs:
           fi
 
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
-
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
           MATRIX=$(echo "$CHANGED_FILES" | \
-            grep -E '^(app1|app2)/(dev|prod)/' | \
+            grep -E '^(app1|app2)/(dev|prod)/' || true | \
             awk -F'/' '{print "{\"app\":\""$1"\",\"env\":\""$2"\"}"}' | \
             sort -u | \
-            jq -s .)
+            jq -s '.')
 
-          if [ "$MATRIX" = "[]" ]; then
+          if [ "$MATRIX" = "[]" ] || [ -z "$MATRIX" ]; then
             echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"include\":$MATRIX}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Show detected env matrix
-        run: |
-          echo "Detected matrix:"
-          echo '${{ steps.set-matrix.outputs.matrix }}'
+      - name: Show detected matrix
+        run: echo '${{ steps.set-matrix.outputs.matrix }}'
 
   terragrunt-deploy:
     needs: detect-changes
@@ -83,13 +83,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Verify Azure credentials
-        run: |
-          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
-            echo "AZURE_CREDENTIALS secret is missing"
-            exit 1
-          fi
 
       - name: Login to Azure
         uses: azure/login@v1
@@ -114,22 +107,10 @@ jobs:
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
 
-      - name: Terragrunt Format
-        working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all fmt -check=false
-
-      - name: Terragrunt Init
-        working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all init
-
-      - name: Terragrunt Validate
-        working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all validate
-
-      - name: Terragrunt Plan
-        working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all plan --terragrunt-non-interactive
-
       - name: Terragrunt Apply
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+        run: |
+          terragrunt run-all init
+          terragrunt run-all validate
+          terragrunt run-all plan --terragrunt-non-interactive
+          terragrunt run-all apply --terragrunt-non-interactive -auto-approve
