@@ -86,6 +86,7 @@ jobs:
             echo "matrix<<EOF" >> $GITHUB_OUTPUT
             echo "{\"include\":$MATRIX_JSON}" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
+          fi
 
       - name: Show detected matrix
         run: |
