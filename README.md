@@ -168,3 +168,49 @@ Job 2 → matrix.app = app2
 
 
 
+
+
+
+outputs:
+  matrix: ${{ steps.set-matrix.outputs.matrix }}
+🔹 This job will produce one output called matrix
+🔹 That output will look like:
+{"app":["app1"]} or {"app":["app1","app2"]} or {"app":[]}
+
+This output is used by the next job to decide what to deploy.
+
+## SHA in Git usually means: A unique ID that Git gives to every commit
+
+if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+What this means
+${{ github.event_name }} is replaced before execution
+
+Bash sees something like:
+
+bash
+Copy code
+if [ "workflow_dispatch" = "workflow_dispatch" ]; then
+
+or
+bash
+Copy code
+if [ "push" = "workflow_dispatch" ]; then
+Example:
+Trigger	                  Value
+Manual click	            workflow_dispatch
+Git push	                push
+
+## This bash script compares two commit SHAs, checks which app folders changed, builds a JSON matrix accordingly, and outputs it for the next job to use.
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -14,13 +14,13 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }} # Output the matrix for the next job
 
     steps:
       - name: Checkout repository (full history)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 🔥 critical fix
+          fetch-depth: 0   # full git history into the github runner
 
       - name: Detect changed apps
         id: set-matrix
@@ -28,7 +28,7 @@ jobs:
         run: |
           # Manual run → deploy everything
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo 'matrix={"app":["app1","app2"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"app":["app1","app2"]}' >> $GITHUB_OUTPUT  # Create an output called matrix with value value
             exit 0
           fi
 
@@ -38,10 +38,12 @@ jobs:
             exit 0
           fi
 
+          # Show me only the file names that changed between previous commit and current commit
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
 
-          APPS=()
+          APPS=() # Initialize an empty array We will add apps only if they changed
 
+          # Check for changes in each app directory
           if echo "$CHANGED_FILES" | grep -q "^app1/"; then
             APPS+=("\"app1\"")
           fi
@@ -56,18 +58,18 @@ jobs:
           fi
 
           if [ ${#APPS[@]} -eq 0 ]; then
-            echo 'matrix={"app":[]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"app":[]}' >> $GITHUB_OUTPUT  # No apps changed Deployment job will be skipped
           else
-            echo "matrix={\"app\":[${APPS[*]}]}" >> $GITHUB_OUTPUT
+            echo "matrix={\"app\":[${APPS[*]}]}" >> $GITHUB_OUTPUT # Apps that changed will be saved in output matrix
           fi
-
+          
   terragrunt-deploy:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.matrix != '{"app":[]}'
+    needs: detect-changes # “Do NOT start this job until detect-changes finishes.”
+    if: needs.detect-changes.outputs.matrix != '{"app":[]}' # Skip this job if no apps changed and were detected in previous job 
     runs-on: ubuntu-latest
 
     strategy:
-      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }} # Use the output matrix from the previous job, fromJson converts string to JSON object
 
     steps:
       - name: Checkout repository
