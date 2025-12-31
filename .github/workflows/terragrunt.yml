@@ -62,6 +62,10 @@ jobs:
           else
             echo "matrix={\"app\":[${APPS[*]}]}" >> $GITHUB_OUTPUT # Apps that changed will be saved in output matrix
           fi
+      - name: Show detected matrix
+        run: |
+          echo "Detected matrix from detect-changes job:"
+          echo "Detected matrix: ${{ steps.set-matrix.outputs.matrix }}"
           
   terragrunt-deploy:
     needs: detect-changes # “Do NOT start this job until detect-changes finishes.”
