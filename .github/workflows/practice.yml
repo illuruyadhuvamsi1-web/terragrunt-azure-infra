@@ -1,4 +1,4 @@
-name: Terragrunt Pipeline
+name: Terragrunt Pipeline with path based triggers
 
 on:
   push:
