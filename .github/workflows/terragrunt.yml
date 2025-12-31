@@ -32,7 +32,7 @@ jobs:
           #   exit 0
           # fi
 
-          # # Handle first commit / missing before SHA
+          # # Handle first commit / missing before SHA 
           # if [ -z "${{ github.event.before }}" ]; then
           #   echo 'matrix={"app":["app1","app2"]}' >> $GITHUB_OUTPUT
           #   exit 0
