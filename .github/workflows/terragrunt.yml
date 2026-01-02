@@ -80,6 +80,8 @@ jobs:
   deploy:
     needs: detect-changes
     runs-on: ubuntu-latest
+    environment:
+      name: prod
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
