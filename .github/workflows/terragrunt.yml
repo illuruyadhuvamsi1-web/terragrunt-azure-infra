@@ -34,7 +34,6 @@ jobs:
         run: |
           echo "Event: ${{ github.event_name }}"
 
-          # Manual trigger → deploy all
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "matrix<<EOF" >> $GITHUB_OUTPUT
             echo '{
@@ -49,7 +48,6 @@ jobs:
             exit 0
           fi
 
-          # First commit
           if [ -z "${{ github.event.before }}" ]; then
             echo "matrix<<EOF" >> $GITHUB_OUTPUT
             echo '{
@@ -82,13 +80,8 @@ jobs:
           echo "{\"include\":$MATRIX_JSON}" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Show detected matrix
-        run: |
-          echo "Detected matrix from detect-changes job:"
-          echo '${{ steps.set-matrix.outputs.matrix }}'
-
   # -----------------------------
-  # 2. Terragrunt PLAN (no approval)
+  # 2. Terragrunt PLAN (summary added)
   # -----------------------------
   terragrunt-plan:
     needs: detect-changes
@@ -126,17 +119,33 @@ jobs:
 
       - name: Terragrunt Init
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all init
+        run: terragrunt run-all init --terragrunt-non-interactive
 
       - name: Terragrunt Plan
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all plan --terragrunt-non-interactive
+        run: |
+          terragrunt run-all plan \
+            --terragrunt-non-interactive \
+            -no-color | tee plan.txt
+
+      - name: Publish Plan to Summary
+        if: always()
+        working-directory: ${{ matrix.app }}/${{ matrix.env }}
+        run: |
+          echo "## Terraform Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Application:** ${{ matrix.app }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ matrix.env }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```terraform' >> $GITHUB_STEP_SUMMARY
+          cat plan.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
   # -----------------------------
   # 3. Terragrunt APPLY (approval here)
   # -----------------------------
   terragrunt-apply:
-    needs: 
+    needs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
