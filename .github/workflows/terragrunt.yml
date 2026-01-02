@@ -80,8 +80,8 @@ jobs:
   deploy:
     needs: detect-changes
     runs-on: ubuntu-latest
-    environment:
-      name: prod
+    # environment:
+    #   name: prod
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
@@ -113,14 +113,6 @@ jobs:
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
 
-      # Approval step for PROD only
-      - name: Wait for production approval
-        if: ${{ matrix.env == 'prod' }}
-        uses: trstringer/manual-approval@v1
-        with:
-          secret: ${{ github.TOKEN }}
-          approvers: team-leads
-
       # Terragrunt Init
       - name: Terragrunt Init
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
@@ -145,6 +137,14 @@ jobs:
             cat plan.txt
             echo '```'
           } >> $GITHUB_STEP_SUMMARY
+
+      # Approval step for PROD only
+      - name: Wait for production approval
+        if: ${{ matrix.env == 'prod' }}
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: illuruyadhuvamsi1-web
 
       # Terragrunt Apply (Non-Prod auto, Prod after approval)
       - name: Terragrunt Apply
