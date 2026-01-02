@@ -82,6 +82,11 @@ jobs:
           echo "{\"include\":$MATRIX_JSON}" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Show detected matrix
+        run: |
+          echo "Detected matrix from detect-changes job:"
+          echo '${{ steps.set-matrix.outputs.matrix }}'
+
   # -----------------------------
   # 2. Terragrunt PLAN (no approval)
   # -----------------------------
