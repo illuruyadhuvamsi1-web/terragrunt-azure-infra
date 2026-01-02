@@ -131,15 +131,7 @@ jobs:
       - name: Publish Plan to Summary
         if: always()
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: |
-          echo "## Terraform Plan" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Application:** ${{ matrix.app }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ matrix.env }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```terraform' >> $GITHUB_STEP_SUMMARY
-          cat plan.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+        run: cat plan.txt >> $GITHUB_STEP_SUMMARY
 
   # -----------------------------
   # 3. Terragrunt APPLY (approval here)
