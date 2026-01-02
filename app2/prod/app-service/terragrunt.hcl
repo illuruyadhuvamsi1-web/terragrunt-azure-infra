@@ -18,7 +18,7 @@ terraform {
 }
 
 inputs = {
-  plan_name           = "${local.env.locals.app_prefix}-plan-${local.env.locals.env_name}-approvaltest"
+  plan_name           = "${local.env.locals.app_prefix}-plan-${local.env.locals.env_name}"
   app_name            = "${local.env.locals.app_prefix}-app-${local.env.locals.env_name}"
   location            = local.env.locals.location
   resource_group_name = dependency.rg.outputs.name
