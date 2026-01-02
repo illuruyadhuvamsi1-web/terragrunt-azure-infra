@@ -137,15 +137,16 @@ jobs:
         if: always()
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: |
-          {
-            echo "## Terraform Changes"
-            echo ""
-            echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
-            echo ""
-            echo '```diff'
-            grep -E '^[[:space:]]*[+~-]' plan.txt || echo "No infrastructure changes"
-            echo '```'
-          } >> $GITHUB_STEP_SUMMARY 
+           {
+              echo "## Terraform Resource Changes"
+              echo ""
+              echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
+              echo ""
+              echo '```diff'
+              grep -E '^[[:space:]]*[+~-]/?\+?[[:space:]]*resource "' plan.txt \
+                || echo "No resource-level changes"
+              echo '```'
+            } >> $GITHUB_STEP_SUMMARY
 
 
   # -----------------------------
