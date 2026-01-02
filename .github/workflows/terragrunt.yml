@@ -142,6 +142,22 @@ jobs:
             echo '```'
           } >> $GITHUB_STEP_SUMMARY
 
+      # # Publish ONLY + / - / ~ changes to Summary
+      # - name: Publish Plan Changes to Summary
+      #   if: always()
+      #   working-directory: ${{ matrix.app }}/${{ matrix.env }}
+      #   run: |
+      #     {
+      #       echo "## Terraform Changes"
+      #       echo ""
+      #       echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
+      #       echo ""
+      #       echo '```diff'
+      #       grep -E '^[[:space:]]*[+~-]' plan.txt || echo "No infrastructure changes"
+      #       echo '```'
+      #     } >> $GITHUB_STEP_SUMMARY 
+
+
   # -----------------------------
   # 3. Terragrunt APPLY (approval here)
   # -----------------------------
