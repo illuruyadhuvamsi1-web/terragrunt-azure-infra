@@ -142,9 +142,15 @@ jobs:
               echo ""
               echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
               echo ""
+
+              echo "### Resources to be CREATED"
               echo '```diff'
-              grep -E '^[[:space:]]*[+~-]/?\+?[[:space:]]*resource "' plan.txt \
-                || echo "No resource-level changes"
+              grep -E '^[[:space:]]*\+[[:space:]]*resource "' plan.txt || echo "No creates"
+              echo '```'
+              echo "" 
+              echo "### Resources to be DESTROYED (including replacements)"
+              echo '```diff'
+              grep -E '^[[:space:]]*(-[[:space:]]*resource "|-/\+[[:space:]]*resource ")' plan.txt || echo "No destroys"
               echo '```'
             } >> $GITHUB_STEP_SUMMARY
 
