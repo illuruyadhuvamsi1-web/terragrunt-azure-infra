@@ -11,6 +11,9 @@ permissions:
   contents: read
 
 jobs:
+  # -----------------------------
+  # 1. Detect changed app/env
+  # -----------------------------
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -77,11 +80,12 @@ jobs:
           echo "{\"include\":$MATRIX_JSON}" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-  deploy:
+  # -----------------------------
+  # 2. Terragrunt PLAN (summary added)
+  # -----------------------------
+  terragrunt-plan:
     needs: detect-changes
     runs-on: ubuntu-latest
-    # environment:
-    #   name: prod
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
@@ -113,17 +117,15 @@ jobs:
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
 
-      # Terragrunt Init
       - name: Terragrunt Init
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all init --terragrunt-non-interactive
 
-      # Terragrunt Plan
       - name: Terragrunt Plan
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all plan --terragrunt-non-interactive -no-color | tee plan.txt
+        run: |
+          terragrunt run-all plan --terragrunt-non-interactive -no-color | tee plan.txt
 
-      # Publish Plan to Summary
       - name: Publish Plan to Summary
         if: always()
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
@@ -138,15 +140,81 @@ jobs:
             echo '```'
           } >> $GITHUB_STEP_SUMMARY
 
-      # Approval step for PROD only
-      - name: Wait for production approval
-        if: ${{ matrix.env == 'prod' }}
-        uses: trstringer/manual-approval@v1
-        with:
-          secret: ${{ github.TOKEN }}
-          approvers: illuruyadhuvamsi1-web
+  # -----------------------------
+  # 3a. Apply for NON-PROD (auto)
+  # -----------------------------
+  terragrunt-apply-nonprod:
+    needs:
+      - terragrunt-plan
+      - detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: 
+        include: ${{ fromJson(needs.detect-changes.outputs.matrix).include }}
+        exclude:
+          - env: prod
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Terragrunt Apply (Non-Prod auto, Prod after approval)
-      - name: Terragrunt Apply
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Install Terragrunt
+        run: |
+          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/terragrunt
+
+      - name: Terragrunt Apply (Non-Prod)
+        working-directory: ${{ matrix.app }}/${{ matrix.env }}
+        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
+
+  # -----------------------------
+  # 3b. Apply for PROD (manual approval)
+  # -----------------------------
+  terragrunt-apply-prod:
+    needs:
+      - terragrunt-plan
+      - detect-changes
+    runs-on: ubuntu-latest
+    
+    environment:
+      name: prod   # Approval required for prod
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Install Terragrunt
+        run: |
+          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/terragrunt
+
+      - name: Terragrunt Apply (PROD)
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
