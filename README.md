@@ -207,6 +207,83 @@ Git push	                push
 
 
 
+If you trigger manually (from GitHub UI):
+→ It says: “Run all apps and environments.”
+
+If this is the first commit (no previous commit to compare):
+→ It also says: “Run all apps and environments.”
+
+Otherwise, check what files changed:
+Example: You changed app1/dev/main.tf
+It sees: app1 in dev changed
+It adds {"app":"app1","env":"dev"} to the list.
+Only this app/environment will be deployed.
+
+
+This GitHub Action job helps detect which apps and environments changed and prepares a “list” (called a matrix) for the next job to use.
+
+Step by step
+1️⃣ Checkout the code
+uses: actions/checkout@v4
+
+
+This step just grabs your code so the workflow can see what changed.
+
+2️⃣ Install jq
+sudo apt-get install -y jq
+
+
+jq is a tool that makes it easy to work with JSON in scripts.
+
+3️⃣ Detect changes
+
+This is the main part. Think of it like this:
+
+If you trigger manually (from GitHub UI):
+→ It says: “Run all apps and environments.”
+
+If this is the first commit (no previous commit to compare):
+→ It also says: “Run all apps and environments.”
+
+Otherwise, check what files changed:
+
+Example: You changed app1/dev/main.tf
+
+It sees: app1 in dev changed
+
+It adds {"app":"app1","env":"dev"} to the list.
+
+Only this app/environment will be deployed.
+
+How the matrix looks
+
+After detecting changes, it makes a list like this:
+
+{
+  "include": [
+    {"app":"app1","env":"dev"},
+    {"app":"app2","env":"prod"}
+  ]
+}
+
+
+This list is called a matrix.
+
+The next job can use this to only run for app1/dev and app2/prod.
+
+4️⃣ Show the matrix
+echo '${{ steps.set-matrix.outputs.matrix }}'
+
+
+This just prints the matrix for you to see in logs.
+
+
+
+
+
+
+
+
 
 
 

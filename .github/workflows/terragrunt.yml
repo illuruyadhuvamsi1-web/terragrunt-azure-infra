@@ -14,22 +14,22 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }} # Output the matrix for downstream jobs to consume     
 
     steps:
       - name: Checkout repository (full history)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Fetches the full Git history
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Detect changed app/env
-        id: set-matrix
+        id: set-matrix # Set output matrix based on changed files
         shell: bash
         run: |
-          echo "Event: ${{ github.event_name }}"
+          echo "Event: ${{ github.event_name }}"  # Built-in GitHub variable that tells what triggered the workflow (push, workflow_dispatch, etc.).
 
           # Manual trigger → deploy all apps/environments
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -61,7 +61,7 @@ jobs:
             exit 0
           fi
 
-          # Detect changed files
+          # Detect changed files between the last commit and the current commit
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
           echo "Changed files:"
           echo "$CHANGED_FILES"
@@ -69,8 +69,8 @@ jobs:
           MATRIX=()
           for file in $CHANGED_FILES; do
             if [[ $file =~ ^(app1|app2)/(dev|prod)/ ]]; then
-              app=${BASH_REMATCH[1]}
-              env=${BASH_REMATCH[2]}
+              app=${BASH_REMATCH[1]}          # first group (app1|app2)
+              env=${BASH_REMATCH[2]}          # second group (dev|prod)
               MATRIX+=("{\"app\":\"$app\",\"env\":\"$env\"}")
             fi
           done
@@ -96,8 +96,10 @@ jobs:
   terragrunt-deploy:
     needs: detect-changes
     runs-on: ubuntu-latest
+    environment: 
+      name: ${{ matrix.env }}
     strategy:
-      fail-fast: false
+      fail-fast: false # Continue other jobs even if one fails
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
 
     steps:
