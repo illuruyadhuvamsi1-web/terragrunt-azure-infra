@@ -32,7 +32,7 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Build matrices (auto-discover apps/envs)
+      - name: Build matrices (auto-discover apps/envs, exclude non-infra)
         id: set-matrix
         shell: bash
         run: |
@@ -40,11 +40,9 @@ jobs:
 
           # -------- CONFIGURE WHAT COUNTS AS "PROD" --------
           PROD_ENV_NAMES=("prod" "production" "live")
-          # Exclude non-app top-level dirs (adjust for your repo)
-          EXCLUDE_TOP=("." ".." ".git" ".github" "scripts" "modules" "shared")
 
-          # Helper: print an array as newline-separated values
-          join_by_newline() { printf "%s\n" "$@"; }
+          # Exclude non-app top-level dirs (adjust for your repo)
+          EXCLUDE_TOP=("." ".." ".git" ".github" "scripts" "modules" "shared" "docs" "ci" "pipelines" ".azuredevops")
 
           # Helper: is value in array
           in_array() {
@@ -121,19 +119,40 @@ jobs:
             exit 0
           fi
 
-          # -------- DETECT CHANGES IN THIS PUSH --------
+          # -------- DETECT CHANGES IN THIS PUSH (EXCLUDING NON-INFRA) --------
+          # Get changed files
           CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
 
+          # Exclude known non-infra roots such as .github/, .git/, scripts/, modules/, shared/, docs/, ci/, pipelines/
+          FILTERED_CHANGED=$(printf '%s\n' "$CHANGED" \
+            | grep -Ev '^(\.github/|\.git/|scripts/|modules/|shared/|docs/|ci/|pipelines/|\.azuredevops/)' || true)
+
+          # Extract <app>/<env> pairs from filtered paths
           CHANGED_PAIRS=$(
-            join_by_newline $CHANGED \
+            printf '%s\n' "$FILTERED_CHANGED" \
               | awk -F/ 'NF>=2 { printf "{\"app\":\"%s\",\"env\":\"%s\"}\n", $1, $2 }' \
               | dedupe
           )
 
-          if [ -z "$CHANGED_PAIRS" ]; then
+          # Verify each pair actually has terragrunt/terraform files
+          VERIFIED_PAIRS=$(
+            printf '%s\n' "$CHANGED_PAIRS" \
+              | jq -r '. | @base64' \
+              | while read -r row; do
+                  _jq() { echo "$row" | base64 --decode | jq -r "$1"; }
+                  app=$(_jq '.app')
+                  env=$(_jq '.env')
+                  if [ -f "$app/$env/terragrunt.hcl" ] || ls "$app/$env/"*.tf >/dev/null 2>&1; then
+                    printf '{"app":"%s","env":"%s"}\n' "$app" "$env"
+                  fi
+                done \
+              | dedupe
+          )
+
+          if [ -z "$VERIFIED_PAIRS" ]; then
             MATRIX_JSON='[]'
           else
-            MATRIX_JSON=$(printf '%s\n' "$CHANGED_PAIRS" | jq -cs '.')
+            MATRIX_JSON=$(printf '%s\n' "$VERIFIED_PAIRS" | jq -cs '.')
           fi
 
           # Split prod/nonprod for changed only
@@ -154,6 +173,7 @@ jobs:
             "$(jq -r '.include | length' <<<"$NONPROD_WRAPPED")" \
             "$(jq -r '.include | length' <<<"$PROD_WRAPPED")" \
             "$(jq -r '.include | length' <<<"$FULL_WRAPPED")"
+
 
   # 2️ Terragrunt PLAN (full output in summary) — for all changed envs
   terragrunt-plan:
