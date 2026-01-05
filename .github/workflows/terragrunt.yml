@@ -145,22 +145,22 @@ jobs:
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: |
            {
-            echo "## Terraform Resource Changes"
-            echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
-            echo ""
-
-            for type in CREATE UPDATE DESTROY; do
-              echo "### $type"
-              echo '```'
-              case $type in
-                CREATE)  grep '^\s*+ resource "' plan.txt ;;
-                UPDATE)  grep '^\s*~ resource "' plan.txt ;;
-                DESTROY) grep '^\s*(- resource "|-\/\+ resource ")' plan.txt ;;
-              esac | awk -F\" '{print "- " $2}' || echo "No changes"
-              echo '```'
+              echo "## Terraform Resource Changes"
+              echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
               echo ""
-            done
-              } >> $GITHUB_STEP_SUMMARY
+
+              for type in CREATE UPDATE DESTROY; do
+                echo "### $type"
+                echo '```'
+                case $type in
+                  CREATE)  grep '+ resource "' plan.txt ;;
+                  UPDATE)  grep '~ resource "' plan.txt ;;
+                  DESTROY) grep '- resource "' plan.txt ;;
+                esac | awk -F\" '{print "- " $2}' || echo "No changes"
+                echo '```'
+                echo ""
+              done
+            } >> $GITHUB_STEP_SUMMARY
 
 
   # -----------------------------
