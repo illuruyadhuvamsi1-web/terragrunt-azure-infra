@@ -38,53 +38,43 @@ jobs:
         id: set-matrix
         shell: bash
         run: |
-          # Helper: echo matrices to output
+          set -euo pipefail
+
+          # Helper: emit outputs safely (single-line, no leading spaces)
           emit_all() {
             local NONPROD="$1"
             local PROD="$2"
             local FULL="$3"
-            echo "nonprod_matrix=$NONPROD" >> "$GITHUB_OUTPUT"
-            echo "prod_matrix=$PROD" >> "$GITHUB_OUTPUT"
-            echo "full_matrix=$FULL" >> "$GITHUB_OUTPUT"
+            printf 'nonprod_matrix=%s\n' "$NONPROD" >> "$GITHUB_OUTPUT"
+            printf 'prod_matrix=%s\n' "$PROD" >> "$GITHUB_OUTPUT"
+            printf 'full_matrix=%s\n' "$FULL" >> "$GITHUB_OUTPUT"
           }
+
+          # Predefine the full set as JSON objects (compact with jq -c)
+          ALL_FULL=$(jq -c -n '{"include":[
+            {"app":"app1","env":"dev"},
+            {"app":"app1","env":"prod"},
+            {"app":"app2","env":"dev"},
+            {"app":"app2","env":"prod"}
+          ]}')
+          ALL_NONPROD=$(jq -c -n '{"include":[
+            {"app":"app1","env":"dev"},
+            {"app":"app2","env":"dev"}
+          ]}')
+          ALL_PROD=$(jq -c -n '{"include":[
+            {"app":"app1","env":"prod"},
+            {"app":"app2","env":"prod"}
+          ]}')
 
           # Manual trigger → include all envs
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            NONPROD='{"include":[
-              {"app":"app1","env":"dev"},
-              {"app":"app2","env":"dev"}
-            ]}'
-            PROD='{"include":[
-              {"app":"app1","env":"prod"},
-              {"app":"app2","env":"prod"}
-            ]}'
-            FULL='{"include":[
-              {"app":"app1","env":"dev"},
-              {"app":"app1","env":"prod"},
-              {"app":"app2","env":"dev"},
-              {"app":"app2","env":"prod"}
-            ]}'
-            emit_all "$NONPROD" "$PROD" "$FULL"
+            emit_all "$ALL_NONPROD" "$ALL_PROD" "$ALL_FULL"
             exit 0
           fi
 
           # First commit on branch → include all envs
           if [ -z "${{ github.event.before }}" ]; then
-            NONPROD='{"include":[
-              {"app":"app1","env":"dev"},
-              {"app":"app2","env":"dev"}
-            ]}'
-            PROD='{"include":[
-              {"app":"app1","env":"prod"},
-              {"app":"app2","env":"prod"}
-            ]}'
-            FULL='{"include":[
-              {"app":"app1","env":"dev"},
-              {"app":"app1","env":"prod"},
-              {"app":"app2","env":"dev"},
-              {"app":"app2","env":"prod"}
-            ]}'
-            emit_all "$NONPROD" "$PROD" "$FULL"
+            emit_all "$ALL_NONPROD" "$ALL_PROD" "$ALL_FULL"
             exit 0
           fi
 
@@ -98,15 +88,22 @@ jobs:
             fi
           done
 
-          # Build arrays
-          MATRIX_JSON=$(printf '%s\n' "${MATRIX[@]}" | sort -u | jq -cs '.')
-          NONPROD_JSON=$(echo "$MATRIX_JSON" | jq '[.[] | select(.env != "prod")]')
-          PROD_JSON=$(echo "$MATRIX_JSON" | jq '[.[] | select(.env == "prod")]')
+          # Build compact arrays; ensure empty becomes [] instead of null
+          if [ ${#MATRIX[@]} -eq 0 ]; then
+            MATRIX_JSON='[]'
+          else
+            MATRIX_JSON=$(printf '%s\n' "${MATRIX[@]}" | sort -u | jq -cs '.')
+          fi
 
-          # Emit outputs (each as {"include":[...]})
-          echo "nonprod_matrix={\"include\":$NONPROD_JSON}" >> "$GITHUB_OUTPUT"
-          echo "prod_matrix={\"include\":$PROD_JSON}" >> "$GITHUB_OUTPUT"
-          echo "full_matrix={\"include\":$MATRIX_JSON}" >> "$GITHUB_OUTPUT"
+          NONPROD_JSON=$(echo "$MATRIX_JSON" | jq -c '[.[] | select(.env != "prod")]')
+          PROD_JSON=$(echo "$MATRIX_JSON" | jq -c '[.[] | select(.env == "prod")]')
+
+          # Wrap arrays as {"include":[...]} compact JSON
+          NONPROD_WRAPPED=$(jq -c --argjson arr "$NONPROD_JSON" -n '{include: $arr}')
+          PROD_WRAPPED=$(jq -c --argjson arr "$PROD_JSON" -n '{include: $arr}')
+          FULL_WRAPPED=$(jq -c --argjson arr "$MATRIX_JSON" -n '{include: $arr}')
+
+          emit_all "$NONPROD_WRAPPED" "$PROD_WRAPPED" "$FULL_WRAPPED"
 
   # =========================================================
   # 2️⃣ Terragrunt PLAN (full output in summary) — for all envs
