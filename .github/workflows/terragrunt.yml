@@ -147,10 +147,15 @@ jobs:
             echo ""
             echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
             echo ""
-            echo '```terraform'
-            cat plan.txt
-            echo '```'
-          } >> $GITHUB_STEP_SUMMARY
+
+            if [ -f plan.txt ]; then
+              echo '```terraform'
+              cat plan.txt
+              echo '```'
+            else
+              echo "_No plan output generated (init/plan failed or no changes detected)._"
+            fi
+            } >> $GITHUB_STEP_SUMMARY
   # 3️ Manual Approval (PROD ONLY)
 
   manual-approval-prod:
