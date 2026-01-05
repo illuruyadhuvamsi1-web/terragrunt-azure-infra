@@ -1,4 +1,3 @@
-
 name: Terragrunt Pipeline
 
 on:
@@ -10,7 +9,6 @@ on:
 permissions:
   id-token: write
   contents: read
-
 
 jobs:
   # 1️ Detect changed app/env → outputs 3 matrices + counts
@@ -33,28 +31,25 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Build matrices (auto-discover apps/envs, exclude non-infra)
+      - name: Build matrices (auto-discover apps/envs)
         id: set-matrix
         shell: bash
         run: |
           set -euo pipefail
-
           # -------- CONFIGURE WHAT COUNTS AS "PROD" --------
           PROD_ENV_NAMES=("prod" "production" "live")
-
           # Exclude non-app top-level dirs (adjust for your repo)
-          EXCLUDE_TOP=("." ".." ".git" ".github" "scripts" "modules" "shared" "docs" "ci" "pipelines" ".azuredevops")
-
+          EXCLUDE_TOP=("." ".." ".git" ".github" "scripts" "modules" "shared")
+          # Helper: print an array as newline-separated values
+          join_by_newline() { printf "%s\n" "$@"; }
           # Helper: is value in array
           in_array() {
             local needle="$1"; shift
             for x in "$@"; do [[ "$x" == "$needle" ]] && return 0; done
             return 1
           }
-
           # Helper: dedupe lines
           dedupe() { sort -u; }
-
           # Helper: emit matrices + counts safely
           emit_all() {
             local NONPROD="$1" PROD="$2" FULL="$3"
@@ -66,7 +61,6 @@ jobs:
             printf 'prod_count=%s\n' "$PROD_COUNT" >> "$GITHUB_OUTPUT"
             printf 'full_count=%s\n' "$FULL_COUNT" >> "$GITHUB_OUTPUT"
           }
-
           # -------- DISCOVER ALL app/env COMBINATIONS IN REPO --------
           ALL_PAIRS=$(
             # Find top-level dirs (apps)
@@ -74,9 +68,6 @@ jobs:
               | { while read -r app; do
                     # skip excluded dirs
                     in_array "$app" "${EXCLUDE_TOP[@]}" && continue
-                    # extra guard: skip any app starting with dot
-                    [[ "$app" =~ ^\. ]] && continue
-
                     # discover envs inside each app
                     find "$app" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
                       | while read -r env; do
@@ -88,11 +79,9 @@ jobs:
                   done; } \
               | dedupe
           )
-
           # Build ALL matrices from discovery
           ALL_JSON=$(printf '%s\n' "$ALL_PAIRS" | jq -cs '.[ ]? // []')
           ALL_FULL=$(jq -c --argjson arr "$ALL_JSON" -n '{include: $arr}')
-
           # Nonprod/prod split based on PROD_ENV_NAMES
           PROD_JSON=$(printf '%s\n' "$ALL_PAIRS" \
             | jq -cs --argjson names '["prod","production","live"]' \
@@ -102,7 +91,6 @@ jobs:
                 '[.[] | select(.env as $e | ($names | index($e)) | not)]')
           ALL_NONPROD=$(jq -c --argjson arr "$NONPROD_JSON" -n '{include: $arr}')
           ALL_PROD=$(jq -c --argjson arr "$PROD_JSON" -n '{include: $arr}')
-
           # -------- HANDLE TRIGGERS --------
           # Manual trigger → include all envs
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -112,7 +100,6 @@ jobs:
               "$(jq -r '.include | length' <<<"$ALL_FULL")"
             exit 0
           fi
-
           # First commit on branch → include all envs
           if [ -z "${{ github.event.before }}" ]; then
             emit_all "$ALL_NONPROD" "$ALL_PROD" "$ALL_FULL" \
@@ -121,47 +108,18 @@ jobs:
               "$(jq -r '.include | length' <<<"$ALL_FULL")"
             exit 0
           fi
-
-          # -------- DETECT CHANGES IN THIS PUSH (EXCLUDING NON-INFRA) --------
-          # Get changed files
+          # -------- DETECT CHANGES IN THIS PUSH --------
           CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
-
-          # Exclude known non-infra roots such as .github/, .git/, scripts/, modules/, shared/, docs/, ci/, pipelines/
-          FILTERED_CHANGED=$(printf '%s\n' "$CHANGED" \
-            | grep -Ev '^(\.github/|\.git/|scripts/|modules/|shared/|docs/|ci/|pipelines/|\.azuredevops/)' || true)
-
-          # Extract <app>/<env> pairs from filtered paths
           CHANGED_PAIRS=$(
-            printf '%s\n' "$FILTERED_CHANGED" \
+            join_by_newline $CHANGED \
               | awk -F/ 'NF>=2 { printf "{\"app\":\"%s\",\"env\":\"%s\"}\n", $1, $2 }' \
               | dedupe
           )
-
-          # Verify each pair actually has terragrunt/terraform files
-          VERIFIED_PAIRS=$(
-            printf '%s\n' "$CHANGED_PAIRS" \
-              | jq -r '. | @base64' \
-              | while read -r row; do
-                  _jq() { echo "$row" | base64 --decode | jq -r "$1"; }
-                  app=$(_jq '.app')
-                  env=$(_jq '.env')
-
-                  # extra guard: skip dot-start apps (e.g., .github) just in case
-                  [[ "$app" =~ ^\. ]] && continue
-
-                  if [ -f "$app/$env/terragrunt.hcl" ] || ls "$app/$env/"*.tf >/dev/null 2>&1; then
-                    printf '{"app":"%s","env":"%s"}\n' "$app" "$env"
-                  fi
-                done \
-              | dedupe
-          )
-
-          if [ -z "$VERIFIED_PAIRS" ]; then
+          if [ -z "$CHANGED_PAIRS" ]; then
             MATRIX_JSON='[]'
           else
-            MATRIX_JSON=$(printf '%s\n' "$VERIFIED_PAIRS" | jq -cs '.')
+            MATRIX_JSON=$(printf '%s\n' "$CHANGED_PAIRS" | jq -cs '.')
           fi
-
           # Split prod/nonprod for changed only
           CHANGED_PROD_JSON=$(echo "$MATRIX_JSON" \
             | jq -c --argjson names '["prod","production","live"]' \
@@ -169,18 +127,15 @@ jobs:
           CHANGED_NONPROD_JSON=$(echo "$MATRIX_JSON" \
             | jq -c --argjson names '["prod","production","live"]' \
                 '[.[] | select(.env as $e | ($names | index($e)) | not)]')
-
           # Wrap arrays as {"include":[...]}
           NONPROD_WRAPPED=$(jq -c --argjson arr "$CHANGED_NONPROD_JSON" -n '{include: $arr}')
           PROD_WRAPPED=$(jq -c --argjson arr "$CHANGED_PROD_JSON" -n '{include: $arr}')
           FULL_WRAPPED=$(jq -c --argjson arr "$MATRIX_JSON" -n '{include: $arr}')
-
           # Emit with counts
           emit_all "$NONPROD_WRAPPED" "$PROD_WRAPPED" "$FULL_WRAPPED" \
             "$(jq -r '.include | length' <<<"$NONPROD_WRAPPED")" \
             "$(jq -r '.include | length' <<<"$PROD_WRAPPED")" \
             "$(jq -r '.include | length' <<<"$FULL_WRAPPED")"
-
   # 2️ Terragrunt PLAN (full output in summary) — for all changed envs
   terragrunt-plan:
     needs: detect-changes
@@ -211,7 +166,6 @@ jobs:
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
-
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -222,7 +176,6 @@ jobs:
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
-
       - name: Cache Terraform plugin dir
         uses: actions/cache@v4
         with:
@@ -231,7 +184,6 @@ jobs:
           key: tf-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
           restore-keys: |
             tf-${{ runner.os }}-
-
       - name: Terragrunt Init
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all init --terragrunt-non-interactive
@@ -242,7 +194,6 @@ jobs:
           terragrunt run-all plan \
             --terragrunt-non-interactive \
             -no-color | tee plan.txt
-
       - name: Publish Plan to Summary
         if: always()
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
@@ -260,7 +211,6 @@ jobs:
               echo "_No plan output generated (init/plan failed or no changes detected)._"
             fi
           } >> $GITHUB_STEP_SUMMARY
-
   # 3️ Manual Approval (PROD ONLY) — gates on prod_count>0
   manual-approval-prod:
     needs:
