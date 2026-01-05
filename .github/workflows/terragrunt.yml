@@ -11,6 +11,7 @@ permissions:
   id-token: write
   contents: read
 
+
 jobs:
   # 1️ Detect changed app/env → outputs 3 matrices + counts
   detect-changes:
@@ -73,6 +74,8 @@ jobs:
               | { while read -r app; do
                     # skip excluded dirs
                     in_array "$app" "${EXCLUDE_TOP[@]}" && continue
+                    # extra guard: skip any app starting with dot
+                    [[ "$app" =~ ^\. ]] && continue
 
                     # discover envs inside each app
                     find "$app" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
@@ -142,6 +145,10 @@ jobs:
                   _jq() { echo "$row" | base64 --decode | jq -r "$1"; }
                   app=$(_jq '.app')
                   env=$(_jq '.env')
+
+                  # extra guard: skip dot-start apps (e.g., .github) just in case
+                  [[ "$app" =~ ^\. ]] && continue
+
                   if [ -f "$app/$env/terragrunt.hcl" ] || ls "$app/$env/"*.tf >/dev/null 2>&1; then
                     printf '{"app":"%s","env":"%s"}\n' "$app" "$env"
                   fi
@@ -173,7 +180,6 @@ jobs:
             "$(jq -r '.include | length' <<<"$NONPROD_WRAPPED")" \
             "$(jq -r '.include | length' <<<"$PROD_WRAPPED")" \
             "$(jq -r '.include | length' <<<"$FULL_WRAPPED")"
-
 
   # 2️ Terragrunt PLAN (full output in summary) — for all changed envs
   terragrunt-plan:
