@@ -9,11 +9,8 @@ on:
 permissions:
   id-token: write
   contents: read
-
+  
 jobs:
-# =========================================================
-# 1️⃣ Detect changed app/env and build matrices
-# =========================================================
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -30,7 +27,7 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      - name: Build matrices (dynamic & production-grade)
+      - name: Build matrices
         id: set-matrix
         shell: bash
         run: |
@@ -44,44 +41,40 @@ jobs:
           NONPROD=()
           PROD=()
 
+          echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}"
+
+          # -------------------------------
+          # Workflow_dispatch → include all app/env
+          # -------------------------------
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            while IFS=/ read -r app env; do
+            echo "Manual trigger → including all app/env"
+            find . -mindepth 2 -maxdepth 2 -name terragrunt.hcl | sed 's|^\./||' | while IFS=/ read -r app env; do
               entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
               FULL+=("$entry")
               [[ "$env" == "prod" ]] && PROD+=("$entry") || NONPROD+=("$entry")
-            done < <(
-              find . -mindepth 2 -maxdepth 2 -name terragrunt.hcl \
-              | sed 's|^\./||' \
-              | awk -F/ '{print $1"/"$2}'
-            )
+            done
           else
-            while IFS=/ read -r app env; do
-              if [[ -f "$app/$env/terragrunt.hcl" ]]; then
-                entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
-                FULL+=("$entry")
-                [[ "$env" == "prod" ]] && PROD+=("$entry") || NONPROD+=("$entry")
-              fi
-            done < <(
-              git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
-              | awk -F/ 'NF>=3 {print $1"/"$2}' | sort -u
-            )
+            echo "Push event → checking changed app/env"
+            git diff --name-only $GITHUB_SHA^ $GITHUB_SHA | grep terragrunt.hcl || true | while IFS=/ read -r app env _; do
+              entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
+              FULL+=("$entry")
+              [[ "$env" == "prod" ]] && PROD+=("$entry") || NONPROD+=("$entry")
+            done
           fi
 
-          to_matrix() {
-            jq -c -n --argjson arr "[${*:-}]" '{include:$arr}'
-          }
+          to_matrix() { jq -c -n --argjson arr "[${*:-}]" '{include:$arr}'; }
 
           emit full_matrix    "$(to_matrix "${FULL[@]}")"
           emit nonprod_matrix "$(to_matrix "${NONPROD[@]}")"
           emit prod_matrix    "$(to_matrix "${PROD[@]}")"
 
       - name: Show detected matrices
-        if: always()
         run: |
           echo "========== DETECTED MATRICES =========="
           echo "FULL MATRIX: ${{ steps.set-matrix.outputs.full_matrix }}"
           echo "NON-PROD MATRIX: ${{ steps.set-matrix.outputs.nonprod_matrix }}"
           echo "PROD MATRIX: ${{ steps.set-matrix.outputs.prod_matrix }}"
+
 
 # =========================================================
 # 2️⃣ Terragrunt PLAN — for all envs
