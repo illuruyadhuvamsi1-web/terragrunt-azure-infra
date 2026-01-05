@@ -34,37 +34,40 @@ jobs:
           set -euo pipefail
 
           emit() {
-            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
+            echo "$1=$2" >> "$GITHUB_OUTPUT"
           }
 
           FULL=()
           NONPROD=()
           PROD=()
 
-          # -------------------------------
-          # Manual trigger → include ALL
-          # -------------------------------
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             while IFS=/ read -r app env; do
               entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
               FULL+=("$entry")
-              [[ "$env" == "prod" ]] && PROD+=("$entry") || NONPROD+=("$entry")
+
+              if [[ "$env" == "prod" ]]; then
+                PROD+=("$entry")
+              else
+                NONPROD+=("$entry")
+              fi
             done < <(
               find . -mindepth 2 -maxdepth 2 -name terragrunt.hcl \
               | sed 's|^\./||' \
               | awk -F/ '{print $1"/"$2}'
             )
-
           else
-            # -------------------------------
-            # Push → only changed app/env
-            # -------------------------------
             git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
               | grep terragrunt.hcl || true \
               | while IFS=/ read -r app env _; do
                   entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
                   FULL+=("$entry")
-                  [[ "$env" == "prod" ]] && PROD+=("$entry") || NONPROD+=("$entry")
+
+                  if [[ "$env" == "prod" ]]; then
+                    PROD+=("$entry")
+                  else
+                    NONPROD+=("$entry")
+                  fi
                 done
           fi
 
@@ -89,7 +92,6 @@ jobs:
           echo ""
           echo "PROD MATRIX:"
           echo '${{ steps.set-matrix.outputs.prod_matrix }}'
-
 
 
   # 2️ Terragrunt PLAN (full output in summary) — for all envs
