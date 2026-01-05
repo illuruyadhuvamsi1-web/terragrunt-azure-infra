@@ -11,6 +11,9 @@ permissions:
   contents: read
 
 jobs:
+  # =========================================================
+  # 1️⃣ Detect changed app/env and build matrices
+  # =========================================================
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -41,6 +44,9 @@ jobs:
           NONPROD=()
           PROD=()
 
+          # -------------------------------
+          # Manual trigger → include ALL
+          # -------------------------------
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             while IFS=/ read -r app env; do
               entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
@@ -56,19 +62,24 @@ jobs:
               | sed 's|^\./||' \
               | awk -F/ '{print $1"/"$2}'
             )
-          else
-            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
-              | grep terragrunt.hcl || true \
-              | while IFS=/ read -r app env _; do
-                  entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
-                  FULL+=("$entry")
 
-                  if [[ "$env" == "prod" ]]; then
-                    PROD+=("$entry")
-                  else
-                    NONPROD+=("$entry")
-                  fi
-                done
+          # -------------------------------
+          # Push → only changed app/env
+          # -------------------------------
+          else
+            while IFS=/ read -r app env _; do
+              entry=$(jq -c -n --arg a "$app" --arg e "$env" '{app:$a, env:$e}')
+              FULL+=("$entry")
+
+              if [[ "$env" == "prod" ]]; then
+                PROD+=("$entry")
+              else
+                NONPROD+=("$entry")
+              fi
+            done < <(
+              git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
+              | grep terragrunt.hcl || true
+            )
           fi
 
           to_matrix() {
@@ -93,8 +104,9 @@ jobs:
           echo "PROD MATRIX:"
           echo '${{ steps.set-matrix.outputs.prod_matrix }}'
 
-
-  # 2️ Terragrunt PLAN (full output in summary) — for all envs
+  # =========================================================
+  # 2️⃣ Terragrunt PLAN (all envs)
+  # =========================================================
   terragrunt-plan:
     needs: detect-changes
     runs-on: ubuntu-latest
@@ -120,6 +132,7 @@ jobs:
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -130,6 +143,7 @@ jobs:
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
+
       - name: Terragrunt Init
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all init --terragrunt-non-interactive
@@ -140,7 +154,7 @@ jobs:
           terragrunt run-all plan \
             --terragrunt-non-interactive \
             -no-color | tee plan.txt
-      #  FULL PLAN OUTPUT IN SUMMARY
+
       - name: Publish Plan to Summary
         if: always()
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
@@ -156,28 +170,30 @@ jobs:
               cat plan.txt
               echo '```'
             else
-              echo "_No plan output generated (init/plan failed or no changes detected)._"
+              echo "_No plan output generated._"
             fi
-            } >> $GITHUB_STEP_SUMMARY
-  # 3️ Manual Approval (PROD ONLY)
+          } >> $GITHUB_STEP_SUMMARY
 
+  # =========================================================
+  # 3️⃣ Manual Approval (PROD ONLY)
+  # =========================================================
   manual-approval-prod:
     needs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
-
-    # Run only if prod changes exist
     if: contains(needs.detect-changes.outputs.prod_matrix, '"env":"prod"')
 
     environment:
-      name: prod   
+      name: prod
 
     steps:
       - name: Waiting for PROD approval
         run: echo "Approved. Proceeding with PROD apply."
 
-  # 4️ Terragrunt APPLY (NON-PROD)
+  # =========================================================
+  # 4️⃣ Terragrunt APPLY (NON-PROD)
+  # =========================================================
   terragrunt-apply-nonprod:
     needs:
       - terragrunt-plan
@@ -206,6 +222,7 @@ jobs:
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -216,10 +233,14 @@ jobs:
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
+
       - name: Terragrunt Apply (Non-Prod)
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
-  # 5️ Terragrunt APPLY (PROD) — after approval
+
+  # =========================================================
+  # 5️⃣ Terragrunt APPLY (PROD)
+  # =========================================================
   terragrunt-apply-prod:
     needs:
       - manual-approval-prod
@@ -248,6 +269,7 @@ jobs:
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -258,6 +280,7 @@ jobs:
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
+
       - name: Terragrunt Apply (Prod)
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
