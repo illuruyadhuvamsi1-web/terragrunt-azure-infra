@@ -1,3 +1,4 @@
+
 name: Terragrunt Pipeline
 
 on:
@@ -11,16 +12,16 @@ permissions:
   contents: read
 
 jobs:
-  # 1️ Detect changed app/env → outputs 3 matrices
-  #    - nonprod_matrix (env != prod)
-  #    - prod_matrix (env == prod)
-  #    - full_matrix (all changed envs)
+  # 1️ Detect changed app/env → outputs 3 matrices + counts
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
       nonprod_matrix: ${{ steps.set-matrix.outputs.nonprod_matrix }}
       prod_matrix: ${{ steps.set-matrix.outputs.prod_matrix }}
       full_matrix: ${{ steps.set-matrix.outputs.full_matrix }}
+      nonprod_count: ${{ steps.set-matrix.outputs.nonprod_count }}
+      prod_count: ${{ steps.set-matrix.outputs.prod_count }}
+      full_count: ${{ steps.set-matrix.outputs.full_count }}
 
     steps:
       - name: Checkout repository (full history)
@@ -31,73 +32,139 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Build matrices
+      - name: Build matrices (auto-discover apps/envs)
         id: set-matrix
         shell: bash
         run: |
           set -euo pipefail
-          # Helper: emit outputs safely (single-line, no leading spaces)
+
+          # -------- CONFIGURE WHAT COUNTS AS "PROD" --------
+          PROD_ENV_NAMES=("prod" "production" "live")
+          # Exclude non-app top-level dirs (adjust for your repo)
+          EXCLUDE_TOP=("." ".." ".git" ".github" "scripts" "modules" "shared")
+
+          # Helper: print an array as newline-separated values
+          join_by_newline() { printf "%s\n" "$@"; }
+
+          # Helper: is value in array
+          in_array() {
+            local needle="$1"; shift
+            for x in "$@"; do [[ "$x" == "$needle" ]] && return 0; done
+            return 1
+          }
+
+          # Helper: dedupe lines
+          dedupe() { sort -u; }
+
+          # Helper: emit matrices + counts safely
           emit_all() {
-            local NONPROD="$1"
-            local PROD="$2"
-            local FULL="$3"
+            local NONPROD="$1" PROD="$2" FULL="$3"
+            local NONPROD_COUNT="$4" PROD_COUNT="$5" FULL_COUNT="$6"
             printf 'nonprod_matrix=%s\n' "$NONPROD" >> "$GITHUB_OUTPUT"
             printf 'prod_matrix=%s\n' "$PROD" >> "$GITHUB_OUTPUT"
             printf 'full_matrix=%s\n' "$FULL" >> "$GITHUB_OUTPUT"
+            printf 'nonprod_count=%s\n' "$NONPROD_COUNT" >> "$GITHUB_OUTPUT"
+            printf 'prod_count=%s\n' "$PROD_COUNT" >> "$GITHUB_OUTPUT"
+            printf 'full_count=%s\n' "$FULL_COUNT" >> "$GITHUB_OUTPUT"
           }
-          # Predefine the full set as JSON objects (compact with jq -c)
-          ALL_FULL=$(jq -c -n '{"include":[
-            {"app":"app1","env":"dev"},
-            {"app":"app1","env":"prod"},
-            {"app":"app2","env":"dev"},
-            {"app":"app2","env":"prod"}
-          ]}')
-          ALL_NONPROD=$(jq -c -n '{"include":[
-            {"app":"app1","env":"dev"},
-            {"app":"app2","env":"dev"}
-          ]}')
-          ALL_PROD=$(jq -c -n '{"include":[
-            {"app":"app1","env":"prod"},
-            {"app":"app2","env":"prod"}
-          ]}')
+
+          # -------- DISCOVER ALL app/env COMBINATIONS IN REPO --------
+          ALL_PAIRS=$(
+            # Find top-level dirs (apps)
+            find . -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+              | { while read -r app; do
+                    # skip excluded dirs
+                    in_array "$app" "${EXCLUDE_TOP[@]}" && continue
+
+                    # discover envs inside each app
+                    find "$app" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+                      | while read -r env; do
+                          # only include env if it looks like a terragrunt/terraform folder
+                          if [ -f "$app/$env/terragrunt.hcl" ] || ls "$app/$env/"*.tf >/dev/null 2>&1; then
+                            printf '{"app":"%s","env":"%s"}\n' "$app" "$env"
+                          fi
+                        done
+                  done; } \
+              | dedupe
+          )
+
+          # Build ALL matrices from discovery
+          ALL_JSON=$(printf '%s\n' "$ALL_PAIRS" | jq -cs '.[ ]? // []')
+          ALL_FULL=$(jq -c --argjson arr "$ALL_JSON" -n '{include: $arr}')
+
+          # Nonprod/prod split based on PROD_ENV_NAMES
+          PROD_JSON=$(printf '%s\n' "$ALL_PAIRS" \
+            | jq -cs --argjson names '["prod","production","live"]' \
+                '[.[] | select(.env as $e | $names | index($e))]')
+          NONPROD_JSON=$(printf '%s\n' "$ALL_PAIRS" \
+            | jq -cs --argjson names '["prod","production","live"]' \
+                '[.[] | select(.env as $e | ($names | index($e)) | not)]')
+          ALL_NONPROD=$(jq -c --argjson arr "$NONPROD_JSON" -n '{include: $arr}')
+          ALL_PROD=$(jq -c --argjson arr "$PROD_JSON" -n '{include: $arr}')
+
+          # -------- HANDLE TRIGGERS --------
           # Manual trigger → include all envs
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            emit_all "$ALL_NONPROD" "$ALL_PROD" "$ALL_FULL"
+            emit_all "$ALL_NONPROD" "$ALL_PROD" "$ALL_FULL" \
+              "$(jq -r '.include | length' <<<"$ALL_NONPROD")" \
+              "$(jq -r '.include | length' <<<"$ALL_PROD")" \
+              "$(jq -r '.include | length' <<<"$ALL_FULL")"
             exit 0
           fi
+
           # First commit on branch → include all envs
           if [ -z "${{ github.event.before }}" ]; then
-            emit_all "$ALL_NONPROD" "$ALL_PROD" "$ALL_FULL"
+            emit_all "$ALL_NONPROD" "$ALL_PROD" "$ALL_FULL" \
+              "$(jq -r '.include | length' <<<"$ALL_NONPROD")" \
+              "$(jq -r '.include | length' <<<"$ALL_PROD")" \
+              "$(jq -r '.include | length' <<<"$ALL_FULL")"
             exit 0
           fi
-          # Diff and collect changed app/env pairs
+
+          # -------- DETECT CHANGES IN THIS PUSH --------
           CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
-          MATRIX=()
-          for file in $CHANGED; do
-            if [[ $file =~ ^(app1|app2)/(dev|prod)/ ]]; then
-              MATRIX+=("{\"app\":\"${BASH_REMATCH[1]}\",\"env\":\"${BASH_REMATCH[2]}\"}")
-            fi
-          done
-          # Build compact arrays; ensure empty becomes [] instead of null
-          if [ ${#MATRIX[@]} -eq 0 ]; then
+
+          CHANGED_PAIRS=$(
+            join_by_newline $CHANGED \
+              | awk -F/ 'NF>=2 { printf "{\"app\":\"%s\",\"env\":\"%s\"}\n", $1, $2 }' \
+              | dedupe
+          )
+
+          if [ -z "$CHANGED_PAIRS" ]; then
             MATRIX_JSON='[]'
           else
-            MATRIX_JSON=$(printf '%s\n' "${MATRIX[@]}" | sort -u | jq -cs '.')
+            MATRIX_JSON=$(printf '%s\n' "$CHANGED_PAIRS" | jq -cs '.')
           fi
-          NONPROD_JSON=$(echo "$MATRIX_JSON" | jq -c '[.[] | select(.env != "prod")]')
-          PROD_JSON=$(echo "$MATRIX_JSON" | jq -c '[.[] | select(.env == "prod")]')
-          # Wrap arrays as {"include":[...]} compact JSON
-          NONPROD_WRAPPED=$(jq -c --argjson arr "$NONPROD_JSON" -n '{include: $arr}')
-          PROD_WRAPPED=$(jq -c --argjson arr "$PROD_JSON" -n '{include: $arr}')
+
+          # Split prod/nonprod for changed only
+          CHANGED_PROD_JSON=$(echo "$MATRIX_JSON" \
+            | jq -c --argjson names '["prod","production","live"]' \
+                '[.[] | select(.env as $e | $names | index($e))]')
+          CHANGED_NONPROD_JSON=$(echo "$MATRIX_JSON" \
+            | jq -c --argjson names '["prod","production","live"]' \
+                '[.[] | select(.env as $e | ($names | index($e)) | not)]')
+
+          # Wrap arrays as {"include":[...]}
+          NONPROD_WRAPPED=$(jq -c --argjson arr "$CHANGED_NONPROD_JSON" -n '{include: $arr}')
+          PROD_WRAPPED=$(jq -c --argjson arr "$CHANGED_PROD_JSON" -n '{include: $arr}')
           FULL_WRAPPED=$(jq -c --argjson arr "$MATRIX_JSON" -n '{include: $arr}')
-          emit_all "$NONPROD_WRAPPED" "$PROD_WRAPPED" "$FULL_WRAPPED"
-  # 2️ Terragrunt PLAN (full output in summary) — for all envs
+
+          # Emit with counts
+          emit_all "$NONPROD_WRAPPED" "$PROD_WRAPPED" "$FULL_WRAPPED" \
+            "$(jq -r '.include | length' <<<"$NONPROD_WRAPPED")" \
+            "$(jq -r '.include | length' <<<"$PROD_WRAPPED")" \
+            "$(jq -r '.include | length' <<<"$FULL_WRAPPED")"
+
+  # 2️ Terragrunt PLAN (full output in summary) — for all changed envs
   terragrunt-plan:
     needs: detect-changes
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.full_matrix) }}
+    concurrency:
+      group: ${{ github.workflow }}-${{ matrix.app }}-${{ matrix.env }}-plan
+      cancel-in-progress: false
 
     steps:
       - name: Checkout repository
@@ -106,17 +173,19 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      # If you have Azure OIDC configured, you can use azure/login with federated credentials.
       - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Set ARM env vars
+      - name: Set ARM env vars (for Terraform)
         run: |
           echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -127,6 +196,16 @@ jobs:
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
+
+      - name: Cache Terraform plugin dir
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+          key: tf-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-${{ runner.os }}-
+
       - name: Terragrunt Init
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all init --terragrunt-non-interactive
@@ -137,7 +216,7 @@ jobs:
           terragrunt run-all plan \
             --terragrunt-non-interactive \
             -no-color | tee plan.txt
-      #  FULL PLAN OUTPUT IN SUMMARY
+
       - name: Publish Plan to Summary
         if: always()
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
@@ -154,48 +233,43 @@ jobs:
             else
               echo "_No plan output generated (init/plan failed or no changes detected)._"
             fi
-            } >> $GITHUB_STEP_SUMMARY
-  # 3️ Manual Approval (PROD ONLY)
+          } >> $GITHUB_STEP_SUMMARY
 
+  # 3️ Manual Approval (PROD ONLY) — gates on prod_count>0
   manual-approval-prod:
     needs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
-
-    # Run only if prod changes exist
-    if: contains(needs.detect-changes.outputs.prod_matrix, '"env":"prod"')
-
+    if: ${{ needs.detect-changes.outputs.prod_count != '0' }}
     environment:
-      name: prod   
-
+      name: prod
     steps:
       - name: Waiting for PROD approval
         run: echo "Approved. Proceeding with PROD apply."
 
-  # 4️ Terragrunt APPLY (NON-PROD)
+  # 4️ APPLY (Nonprod auto; Prod after approval)
   terragrunt-apply-nonprod:
     needs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
-    if: contains(needs.detect-changes.outputs.nonprod_matrix, '"env"')
+    if: ${{ needs.detect-changes.outputs.nonprod_count != '0' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.nonprod_matrix) }}
-
+    concurrency:
+      group: ${{ github.workflow }}-${{ matrix.app }}-${{ matrix.env }}-apply
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
-
       - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Set ARM env vars
         run: |
           echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
@@ -206,38 +280,38 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
-
       - name: Install Terragrunt
         run: |
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
-      - name: Terragrunt Apply (Non-Prod)
+      - name: Terragrunt Apply (nonprod)
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
-  # 5️ Terragrunt APPLY (PROD) — after approval
+
   terragrunt-apply-prod:
     needs:
       - manual-approval-prod
-      - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
+    if: ${{ needs.detect-changes.outputs.prod_count != '0' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.prod_matrix) }}
-
+    environment:
+      name: prod
+    concurrency:
+      group: ${{ github.workflow }}-${{ matrix.app }}-${{ matrix.env }}-apply
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
-
       - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Set ARM env vars
         run: |
           echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
@@ -248,12 +322,11 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
-
       - name: Install Terragrunt
         run: |
           curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
-      - name: Terragrunt Apply (Prod)
+      - name: Terragrunt Apply (prod)
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
