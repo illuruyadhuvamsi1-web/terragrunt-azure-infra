@@ -76,6 +76,21 @@ jobs:
           emit nonprod_matrix "$(to_matrix "${NONPROD[@]}")"
           emit prod_matrix    "$(to_matrix "${PROD[@]}")"
 
+      - name: Show detected matrices
+        if: always()
+        run: |
+          echo "========== DETECTED MATRICES =========="
+          echo ""
+          echo "FULL MATRIX:"
+          echo '${{ steps.set-matrix.outputs.full_matrix }}'
+          echo ""
+          echo "NON-PROD MATRIX:"
+          echo '${{ steps.set-matrix.outputs.nonprod_matrix }}'
+          echo ""
+          echo "PROD MATRIX:"
+          echo '${{ steps.set-matrix.outputs.prod_matrix }}'
+
+
 
   # 2️ Terragrunt PLAN (full output in summary) — for all envs
   terragrunt-plan:
