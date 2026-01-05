@@ -174,9 +174,7 @@ jobs:
     needs:
       - terragrunt-plan
       - detect-changes
-      - manual-approval-prod
     runs-on: ubuntu-latest
-    if: contains(needs.detect-changes.outputs.nonprod_matrix, '"env"')
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.nonprod_matrix) }}
@@ -219,7 +217,6 @@ jobs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
-    if: contains(needs.detect-changes.outputs.prod_matrix, '"env":"prod"')
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.prod_matrix) }}
