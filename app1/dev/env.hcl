@@ -18,7 +18,7 @@ locals {
   }
 
   # Networking
-  vnet_name    = "${local.vnet_prefix}-app1-${local.env_name}-okok"
+  vnet_name    = "${local.vnet_prefix}-app1-${local.env_name}-test2"
   subnet_name     = "${local.subnet_prefix}-${local.env_name}"
   address_space   = ["10.0.0.0/16"]
   subnet_prefixes = ["10.0.1.0/24", "10.0.2.0/24"]
