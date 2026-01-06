@@ -1,6 +1,6 @@
 locals {
-  env_name        = "dev"
-  location        = "eastus"
+  env_name        = "test"
+  location        = "westeurope"
   subscription_id = "270ea0f5-3ed6-4fd0-854e-f0573a3ff64c"
 
  # Naming prefixes
@@ -18,11 +18,11 @@ locals {
   }
 
   # Networking
-  vnet_name    = "${local.vnet_prefix}-app1-${local.env_name}-devtest"
+  vnet_name       = "${local.vnet_prefix}-${local.env_name}-test1"
   subnet_name     = "${local.subnet_prefix}-${local.env_name}"
   address_space   = ["10.0.0.0/16"]
   subnet_prefixes = ["10.0.1.0/24", "10.0.2.0/24"]
 
   # Storage default SKU
-  storage_sku = "Standard_LRS"
+  storage_sku = "Standard_GRS"
 }
