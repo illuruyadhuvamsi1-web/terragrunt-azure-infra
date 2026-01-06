@@ -134,10 +134,8 @@ jobs:
       - name: Terragrunt Plan
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: |
-          terragrunt run-all plan \            
-            --terragrunt-non-interactive \
-            -out=plan.out \
-            -no-color
+          set -euo pipefail
+          terragrunt run-all plan --terragrunt-non-interactive -out=plan.out -no-color
 
       - name: upload plan artifact
         uses: actions/upload-artifact@v4
