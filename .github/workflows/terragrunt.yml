@@ -70,6 +70,8 @@ jobs:
 
           # Changed paths only
           CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+           | grep -vE '^\.github/' \
+           | grep -vE '^(README\.md|README\.txt)$' || true)
 
           MATRIX=()
           for file in $CHANGED; do
