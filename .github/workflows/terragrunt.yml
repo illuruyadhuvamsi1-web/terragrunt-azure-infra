@@ -154,11 +154,14 @@ jobs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
-    if: contains(needs.detect-changes.outputs.prod_matrix, '"env":"prod"')
+    if: contains(needs.detect-changes.outputs.prod_matrix, '"app"')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.prod_matrix) }}
     environment:
-      name: ${{ matrix.app }}-prod
+      name: ${{ matrix.app }}-${{ matrix.env }}
     steps:
-      - run: echo "Waiting for PROD approval"
+      - run: echo "Waiting for approval for ${{ matrix.app }}-${{ matrix.env }}"
 # 4️ Terragrunt APPLY (NON-PROD)
   terragrunt-apply-nonprod:
     needs:
@@ -203,6 +206,7 @@ jobs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
+    if: contains(needs.detect-changes.outputs.prod_matrix, '"app"')
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.prod_matrix) }}
