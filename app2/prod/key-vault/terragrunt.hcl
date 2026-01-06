@@ -18,7 +18,7 @@ terraform {
 }
 
 inputs = {
-  name                = "${local.env.locals.kv_prefix}-app2-${local.env.locals.env_name}-testing"
+  name                = "${local.env.locals.kv_prefix}-app2-${local.env.locals.env_name}-test"
   location            = local.env.locals.location
   resource_group_name = dependency.rg.outputs.name
   tenant_id           = "196eed21-c67a-4aae-a70b-9f97644d5d14"
