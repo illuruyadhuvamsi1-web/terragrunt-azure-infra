@@ -81,7 +81,7 @@ jobs:
           for file in $CHANGED; do
             if [[ $file =~ ^([^/]+)/([^/]+)/ ]]; then
               MATRIX+=("{\"app\":\"${BASH_REMATCH[1]}\",\"env\":\"${BASH_REMATCH[2]}\"}")
-            fi
+            fi 
           done
 
           if [ ${#MATRIX[@]} -eq 0 ]; then
