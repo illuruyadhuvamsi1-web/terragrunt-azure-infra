@@ -134,27 +134,33 @@ jobs:
       - name: Terragrunt Plan
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: |
-          terragrunt run-all plan \
+          terragrunt run-all plan \            
             --terragrunt-non-interactive \
-            -no-color | tee plan.txt
+            -out=plan.out \
+            -no-color
+
+      - name: upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-${{ matrix.app }}-${{ matrix.env }}
+          path: ${{ matrix.app }}/${{ matrix.env }}/plan.out
+
+
       #  FULL PLAN OUTPUT IN SUMMARY
       - name: Publish Plan to Summary
-        if: always()
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: |
+ 
           {
             echo "## Terraform Plan"
-            echo ""
             echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
             echo ""
-            if [ -f plan.txt ]; then
-              echo '```terraform'
-              cat plan.txt
-              echo '```'
-            else
-              echo "_No plan output generated (init/plan failed or no changes detected)._"
-            fi
-            } >> $GITHUB_STEP_SUMMARY
+            echo '```terraform'
+            terraform show -no-color plan.out | sed -n '1,300p'
+            echo '```'
+            echo "> Full plan saved as artifact."
+          } >> $GITHUB_STEP_SUMMARY
+
   # 3️ Manual Approval (PROD ONLY)
 
   manual-approval-prod:
@@ -173,13 +179,13 @@ jobs:
       - name: Waiting for PROD approval
         run: echo "Approved. Proceeding with PROD apply."
 
-  # 4️ Terragrunt APPLY (NON-PROD)
+# 4️ Terragrunt APPLY (NON-PROD)
   terragrunt-apply-nonprod:
     needs:
       - terragrunt-plan
       - detect-changes
     runs-on: ubuntu-latest
-    if: contains(needs.detect-changes.outputs.nonprod_matrix, '"env"')
+    # if: contains(needs.detect-changes.outputs.nonprod_matrix, '"env"')
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.nonprod_matrix) }}
