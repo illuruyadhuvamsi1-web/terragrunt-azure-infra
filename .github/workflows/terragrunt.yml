@@ -148,20 +148,20 @@ jobs:
               echo "_No plan output generated._"
             fi
           } >> $GITHUB_STEP_SUMMARY
-# # 3️ Manual Approval (PROD ONLY)
-#   manual-approval-prod:
-#     needs:
-#       - terragrunt-plan
-#       - detect-changes
-#     runs-on: ubuntu-latest
-#     if: contains(needs.detect-changes.outputs.prod_matrix, '"app"')
-#     strategy:
-#       fail-fast: false
-#       matrix: ${{ fromJson(needs.detect-changes.outputs.prod_matrix) }}
-#     environment:
-#       name: ${{ matrix.app }}-${{ matrix.env }}
-#     steps:
-#       - run: echo "Waiting for approval for ${{ matrix.app }}-${{ matrix.env }}"
+# 3️ Manual Approval (PROD ONLY)
+  manual-approval-prod:
+    needs:
+      - terragrunt-plan
+      - detect-changes
+    runs-on: ubuntu-latest
+    if: contains(needs.detect-changes.outputs.prod_matrix, '"app"')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.prod_matrix) }}
+    environment:
+      name: ${{ matrix.app }}-${{ matrix.env }}
+    steps:
+      - run: echo "Waiting for approval for ${{ matrix.app }}-${{ matrix.env }}"
 # 4️ Terragrunt APPLY (NON-PROD)
   terragrunt-apply-nonprod:
     needs:
