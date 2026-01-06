@@ -11,9 +11,7 @@ permissions:
   contents: read
 
 jobs:
-# =========================================================
-# 1️⃣ Detect changed app/env (DYNAMIC ENV SUPPORT)
-# =========================================================
+# 1️ Detect changed app/env (DYNAMIC ENV SUPPORT)
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -42,9 +40,8 @@ jobs:
             printf 'full_matrix=%s\n' "$3" >> "$GITHUB_OUTPUT"
           }
 
-          # -------------------------------------------------
           # Discover app/env dynamically from folder structure
-          # -------------------------------------------------
+
           ALL_MATRIX=$(
             find . -maxdepth 2 -mindepth 2 -type d \
             | sed 's|^\./||' \
@@ -71,9 +68,7 @@ jobs:
             exit 0
           fi
 
-          # -------------------------------------------------
           # Changed paths only
-          # -------------------------------------------------
           CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
 
           MATRIX=()
@@ -98,9 +93,7 @@ jobs:
             "$(jq -c --argjson arr "$PROD_JSON" -n '{include: $arr}')" \
             "$(jq -c --argjson arr "$MATRIX_JSON" -n '{include: $arr}')"
 
-# =========================================================
-# 2️⃣ Terragrunt PLAN (ALL ENVS)
-# =========================================================
+# 2️ Terragrunt PLAN (ALL ENVS)
   terragrunt-plan:
     needs: detect-changes
     runs-on: ubuntu-latest
@@ -167,9 +160,7 @@ jobs:
             fi
           } >> $GITHUB_STEP_SUMMARY
 
-# =========================================================
-# 3️⃣ Manual Approval (PROD ONLY)
-# =========================================================
+# 3️ Manual Approval (PROD ONLY)
   manual-approval-prod:
     needs:
       - terragrunt-plan
@@ -180,10 +171,7 @@ jobs:
       name: prod
     steps:
       - run: echo "Waiting for PROD approval"
-
-# =========================================================
-# 4️⃣ Terragrunt APPLY (NON-PROD)
-# =========================================================
+# 4️ Terragrunt APPLY (NON-PROD)
   terragrunt-apply-nonprod:
     needs:
       - terragrunt-plan
@@ -222,9 +210,7 @@ jobs:
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
 
-# =========================================================
-# 5️⃣ Terragrunt APPLY (PROD)
-# =========================================================
+# 5️ Terragrunt APPLY (PROD)
   terragrunt-apply-prod:
     needs:
       - manual-approval-prod
