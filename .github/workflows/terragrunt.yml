@@ -124,7 +124,12 @@ jobs:
         chmod +x terragrunt
         sudo mv terragrunt /usr/local/bin/terragrunt
 
-    # Optional but recommended: formatting check
+  # Validate Terragrunt HCL files
+    - name: Terragrunt HCL Format Check
+      run: |
+        echo "Checking Terragrunt .hcl file formatting..."
+        terragrunt hclfmt --check
+
     - name: Terraform Format Check
       working-directory: ${{ matrix.app }}/${{ matrix.env }}
       run: terragrunt run-all fmt -check -diff
