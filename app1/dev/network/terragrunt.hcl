@@ -18,7 +18,7 @@ dependency "rg" {
 }
 
 inputs = {
-  subnet_name         = local.env.locals.subnet_name
+  subnet_name         = local.env.locals.subnet_name 
   address_space       = jsonencode(local.env.locals.address_space)
   subnet_prefixes     = jsonencode(local.env.locals.subnet_prefixes)
   resource_group_name = dependency.rg.outputs.name

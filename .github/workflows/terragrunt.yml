@@ -135,7 +135,7 @@ jobs:
 
     - name: Terragrunt Validate Inputs
       working-directory: ${{ matrix.app }}/${{ matrix.env }}
-      run: terragrunt run-all validate-inputs --terragrunt-non-interactive | tee validate_inputs.txt
+      run: terragrunt run-all validate-inputs --terragrunt-non-interactive 
 
      
 # 2️ Terragrunt PLAN (ALL ENVS)
