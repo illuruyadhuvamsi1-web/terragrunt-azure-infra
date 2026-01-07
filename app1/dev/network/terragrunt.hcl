@@ -18,7 +18,6 @@ dependency "rg" {
 }
 
 inputs = {
-  vnet_name           = local.env.locals.vnet_name
   subnet_name         = local.env.locals.subnet_name 
   address_space       = jsonencode(local.env.locals.address_space)
   subnet_prefixes     = jsonencode(local.env.locals.subnet_prefixes)
