@@ -137,24 +137,6 @@ jobs:
       working-directory: ${{ matrix.app }}/${{ matrix.env }}
       run: terragrunt run-all validate-inputs --terragrunt-non-interactive | tee validate_inputs.txt
 
-    - name: Publish Validate to Summary
-      if: always()
-      working-directory: ${{ matrix.app }}/${{ matrix.env }}
-      run: |
-        {
-          echo "## Terragrunt Validate Inputs"
-          echo ""
-          echo "**App:** ${{ matrix.app }} | **Env:** ${{ matrix.env }}"
-          echo ""
-          if [ -f validate_inputs.txt ]; then
-            echo '```text'
-            cat validate_inputs.txt
-            echo '```'
-          else
-            echo "_No validate-inputs output generated._"
-          fi
-         } >> $GITHUB_STEP_SUMMARY
-
      
 # 2️ Terragrunt PLAN (ALL ENVS)
   terragrunt-plan:
