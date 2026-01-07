@@ -23,5 +23,4 @@ inputs = {
   name                = "st${local.env.locals.env_name}terrapractice12"
   resource_group_name = dependency.rg.outputs.name
   location            = local.env.locals.location
-  account_tier        = local.env.locals.storage_sku
 }
