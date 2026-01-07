@@ -156,7 +156,9 @@ jobs:
      
 # 2️ Terragrunt PLAN (ALL ENVS)
   terragrunt-plan:
-    needs: detect-changes
+    needs: 
+      - detect-changes
+      - terragrunt-validate
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
