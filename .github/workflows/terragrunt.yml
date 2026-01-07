@@ -98,8 +98,8 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # - name: Install jq
-    #   run: sudo apt-get update && sudo apt-get install -y jq
+    - name: Install jq
+      run: sudo apt-get update && sudo apt-get install -y jq
 
     - name: Login to Azure
       uses: azure/login@v1
@@ -113,7 +113,7 @@ jobs:
         echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
         echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
 
-    - name: Install Terraform
+    - name: Install Terraform and terragrunt
       uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: 1.6.6
