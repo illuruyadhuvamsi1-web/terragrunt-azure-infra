@@ -24,5 +24,5 @@ locals {
   subnet_prefixes = ["10.0.1.0/24", "10.0.2.0/24"] 
 
   # Storage default SKU
-  storage_sku = "Standard_LRS"
+  storage_sku = "Standard_GRS"
 }
