@@ -9,7 +9,6 @@ resource "azurerm_storage_account" "stg" {
     condition     = var.account_replication_type == "LRS"
     error_message = "Policy violation: Storage Account replication type must be LRS."
   }
-  }
-  
+  } 
 }
 
