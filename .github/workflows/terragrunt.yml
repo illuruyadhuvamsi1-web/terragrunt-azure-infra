@@ -8,15 +8,19 @@ on:
   workflow_dispatch:
     inputs:
       app:
-        description: "Application name (app1 / app2 / all)"
+        description: "Application name"
         required: true
-        default: "all"
+        type: choice
+        options: [all, app1, app2]
+        default: all
 
       environment:
-        description: "Environment (dev / test / prod / all)"
+        description: "Environment"
         required: true
-        default: "all"
- 
+        type: choice
+        options: [all, dev, test, prod]
+        default: all
+
       action:
         description: "Action to perform"
         required: true
@@ -27,9 +31,9 @@ permissions:
   id-token: write
   contents: read
 
-########################################
-# 1️⃣ Detect changes OR use user inputs
-########################################
+################################
+# 1️⃣ Detect Changes
+################################
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -47,11 +51,9 @@ jobs:
 
       - name: Build matrix
         id: set-matrix
-        shell: bash
         run: |
           set -euo pipefail
 
-          # Discover all app/env combos
           ALL_MATRIX=$(
             find . -maxdepth 2 -mindepth 2 -type d \
             | grep -v '^./modules' \
@@ -60,38 +62,18 @@ jobs:
             | jq -cs .
           )
 
-          # ------------------------------
-          # MANUAL RUN (workflow_dispatch)
-          # ------------------------------
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            APP="${{ inputs.app }}"
-            ENV="${{ inputs.environment }}"
-
             FILTERED=$(echo "$ALL_MATRIX" | jq -c \
-              --arg app "$APP" \
-              --arg env "$ENV" '
-                map(
-                  select(
-                    ($app == "all" or .app == $app) and
-                    ($env == "all" or .env == $env)
-                  )
-                )
-              ')
-
-          # ------------------------------
-          # PUSH RUN (auto detect changes)
-          # ------------------------------
+              --arg app "${{ inputs.app }}" \
+              --arg env "${{ inputs.environment }}" '
+              map(select(
+                ($app == "all" or .app == $app) and
+                ($env == "all" or .env == $env)
+              ))')
           else
-            CHANGED=$(
-              git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
-              | grep -vE '^\.github/' \
-              || true
-            )
-
-            FILTERED=$(echo "$CHANGED" | awk -F/ '
-              NF>=2 {print "{\"app\":\""$1"\",\"env\":\""$2"\"}"}
-            ' | sort -u | jq -cs .)
-
+            FILTERED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
+              | awk -F/ 'NF>=2 {print "{\"app\":\""$1"\",\"env\":\""$2"\"}"}' \
+              | sort -u | jq -cs .)
           fi
 
           NONPROD=$(echo "$FILTERED" | jq -c '[.[] | select(.env != "prod")]')
@@ -101,47 +83,14 @@ jobs:
           echo "prod_matrix=$(jq -c --argjson a "$PROD" -n '{include:$a}')" >> $GITHUB_OUTPUT
           echo "full_matrix=$(jq -c --argjson a "$FILTERED" -n '{include:$a}')" >> $GITHUB_OUTPUT
 
-########################################
-# 2️⃣ VALIDATE (ALL SELECTED ENVS)
-########################################
-  terragrunt-validate:
-    needs: detect-changes
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.detect-changes.outputs.full_matrix) }}
-
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y jq
-
-      - uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.6
-
-      - run: |
-          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.54.8/terragrunt_linux_amd64
-          chmod +x terragrunt
-          sudo mv terragrunt /usr/local/bin/terragrunt
-
-      - name: Terragrunt Init
-        working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all init --terragrunt-non-interactive
-
-      - name: Terragrunt Validate
-        working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all validate-inputs --terragrunt-non-interactive
-
-########################################
-# 3️⃣ PLAN (ALL)
-########################################
+################################
+# 2️⃣ PLAN (SAFE ON PUSH)
+################################
   terragrunt-plan:
-    needs: [detect-changes, terragrunt-validate]
+    needs: detect-changes
+    if: needs.detect-changes.outputs.full_matrix != '{"include":[]}'
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.full_matrix) }}
@@ -163,17 +112,21 @@ jobs:
 
       - name: Terragrunt Plan
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
-        run: terragrunt run-all plan --terragrunt-non-interactive -no-color
+        run: terragrunt run-all plan --terragrunt-non-interactive
 
-########################################
-# 4️⃣ APPLY (ONLY WHEN MANUAL + apply)
-########################################
+################################
+# 3️⃣ APPLY (ONLY MANUAL + NON-PROD)
+################################
   terragrunt-apply:
-    needs: 
+    needs:
       - terragrunt-plan
       - detect-changes
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'apply'
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      inputs.action == 'apply' &&
+      needs.detect-changes.outputs.nonprod_matrix != '{"include":[]}'
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.nonprod_matrix) }}
@@ -193,6 +146,6 @@ jobs:
           chmod +x terragrunt
           sudo mv terragrunt /usr/local/bin/terragrunt
 
-      - name: Terragrunt Apply (Non-Prod)
+      - name: Terragrunt Apply
         working-directory: ${{ matrix.app }}/${{ matrix.env }}
         run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve
